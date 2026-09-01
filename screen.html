@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Attendance QR Display</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #0f0f0f;
+    --surface: #1a1a1a;
+    --border: rgba(255,255,255,0.08);
+    --text: #f0ede8;
+    --text-muted: #888;
+    --green: #4ade80;
+    --green-bg: rgba(74,222,128,0.12);
+    --amber: #fbbf24;
+    --amber-bg: rgba(251,191,36,0.12);
+    --blue: #60a5fa;
+  }
+
+  body {
+    font-family: 'Georgia', serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    user-select: none;
+  }
+
+  /* Course info */
+  .course-info {
+    text-align: center;
+    margin-bottom: 28px;
+  }
+  .course-title {
+    font-size: clamp(20px, 3vw, 32px);
+    font-weight: normal;
+    letter-spacing: -0.01em;
+    margin-bottom: 6px;
+  }
+  .course-meta {
+    font-family: monospace;
+    font-size: clamp(12px, 1.5vw, 16px);
+    color: var(--text-muted);
+  }
+
+  /* Session badge */
+  .session-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 8px 20px;
+    font-family: monospace;
+    font-size: clamp(13px, 1.8vw, 18px);
+    color: var(--blue);
+    margin-bottom: 28px;
+  }
+
+  /* QR container */
+  .qr-outer {
+    background: white;
+    border-radius: 20px;
+    padding: 24px;
+    box-shadow: 0 0 60px rgba(255,255,255,0.06);
+    margin-bottom: 24px;
+  }
+  #qr-container canvas,
+  #qr-container img {
+    display: block;
+    border-radius: 6px;
+  }
+
+  /* Timer */
+  .timer-wrap {
+    width: min(320px, 80vw);
+    text-align: center;
+    margin-bottom: 12px;
+  }
+  .timer-bar {
+    height: 4px;
+    background: rgba(255,255,255,0.1);
+    border-radius: 2px;
+    overflow: hidden;
+    margin-bottom: 8px;
+  }
+  .timer-fill {
+    height: 100%;
+    background: var(--green);
+    border-radius: 2px;
+    transition: width 1s linear;
+  }
+  .timer-label {
+    font-family: monospace;
+    font-size: 13px;
+    color: var(--text-muted);
+  }
+
+  /* Geo badge */
+  .geo-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 14px;
+    border-radius: 999px;
+    font-family: monospace;
+    font-size: 12px;
+    margin-bottom: 20px;
+  }
+  .geo-on  { background: var(--green-bg);  color: var(--green);  border: 1px solid rgba(74,222,128,0.3); }
+  .geo-off { background: var(--amber-bg);  color: var(--amber);  border: 1px solid rgba(251,191,36,0.3); }
+  .geo-test{ background: var(--amber-bg);  color: var(--amber);  border: 1px solid rgba(251,191,36,0.3); }
+
+  /* Instruction */
+  .instruction {
+    text-align: center;
+    max-width: 420px;
+  }
+  .instruction p {
+    font-size: clamp(14px, 1.8vw, 18px);
+    color: var(--text-muted);
+    line-height: 1.6;
+  }
+  .instruction strong {
+    color: var(--text);
+    font-weight: normal;
+  }
+
+  /* Waiting state */
+  .waiting {
+    text-align: center;
+    max-width: 400px;
+  }
+  .waiting-icon {
+    font-size: 48px;
+    margin-bottom: 16px;
+    opacity: 0.4;
+  }
+  .waiting h2 {
+    font-size: 20px;
+    font-weight: normal;
+    color: var(--text-muted);
+    margin-bottom: 8px;
+  }
+  .waiting p {
+    font-size: 13px;
+    font-family: monospace;
+    color: rgba(255,255,255,0.3);
+  }
+
+  /* Fullscreen hint */
+  .fullscreen-hint {
+    position: fixed;
+    bottom: 16px;
+    right: 16px;
+    font-family: monospace;
+    font-size: 11px;
+    color: rgba(255,255,255,0.2);
+    cursor: pointer;
+  }
+  .fullscreen-hint:hover { color: rgba(255,255,255,0.5); }
+</style>
+</head>
+<body>
+
+<div id="waiting-state" class="waiting">
+  <div class="waiting-icon">📋</div>
+  <h2>Waiting for QR code…</h2>
+  <p>Select a Day and Hour in the instructor page,<br>then click 📺 Display.</p>
+</div>
+
+<div id="display-state" style="display:none;flex-direction:column;align-items:center;">
+  <div class="course-info">
+    <div class="course-title" id="d-title"></div>
+    <div class="course-meta" id="d-meta"></div>
+  </div>
+
+  <div class="session-badge" id="d-session"></div>
+
+  <div class="qr-outer">
+    <div id="qr-container"></div>
+  </div>
+
+  <div id="d-geo" class="geo-badge geo-on"></div>
+
+  <div class="timer-wrap">
+    <div class="timer-bar"><div class="timer-fill" id="d-timer-fill" style="width:100%;"></div></div>
+    <div class="timer-label" id="d-timer-label">Refreshes in 60s</div>
+  </div>
+
+  <div class="instruction">
+    <p>휴대폰 카메라로 QR 코드를 스캔하여<br><strong>출석을 확인하세요</strong></p>
+  </div>
+</div>
+
+<div class="fullscreen-hint" onclick="toggleFullscreen()" title="Toggle fullscreen">⛶ F11 전체화면</div>
+
+<script>
+function ld(k,d){try{const v=localStorage.getItem(k);return v!==null?JSON.parse(v):d;}catch{return d;}}
+
+const QR_SIZE = Math.min(Math.floor(Math.min(window.innerWidth, window.innerHeight) * 0.45), 320);
+
+let qrObj = null;
+let timerInterval = null;
+let currentToken = null;
+let tokenExpiry = null;
+
+function fmtDate(iso){
+  if(!iso)return '';
+  const[y,m,d]=iso.split('-');
+  return new Date(y,m-1,d).toLocaleDateString(undefined,{month:'long',day:'numeric',year:'numeric'});
+}
+
+function renderQR(tokenStr, expiry){
+  currentToken = tokenStr;
+  tokenExpiry = expiry;
+
+  let token;
+  try { token = JSON.parse(tokenStr); } catch { return; }
+
+  // Show display state
+  document.getElementById('waiting-state').style.display = 'none';
+  const ds = document.getElementById('display-state');
+  ds.style.display = 'flex';
+
+  // Course info
+  const course = ld('att_course_pub', {});
+  document.getElementById('d-title').textContent = course.title || 'Attendance Check-In';
+  const meta = [course.number, course.teacher ? 'Instructor: '+course.teacher : ''].filter(Boolean).join('  ·  ');
+  document.getElementById('d-meta').textContent = meta;
+
+  // Session badge
+  const sessions = ld('att_sessions', Array.from({length:8},(_,i)=>({label:`Day ${i+1}`,date:''})));
+  const hours    = ld('att_hours', [
+    {label:'Hour 1',time:'9:00–10:00 AM'},{label:'Hour 2',time:'10:00–11:00 AM'},
+    {label:'Hour 3',time:'11:00–12:00 PM'},{label:'Hour 4',time:'12:00–1:00 PM'},
+  ]);
+  const s = sessions[token.session] || {};
+  const h = hours[token.hour]       || {};
+  const dateStr = s.date ? fmtDate(s.date) : '';
+  document.getElementById('d-session').textContent =
+    `Day ${token.session+1}${dateStr?' · '+dateStr:''}  ·  Hour ${token.hour+1}  ·  ${h.time||''}`;
+
+  // Geo badge
+  const geo = document.getElementById('d-geo');
+  if(token.testMode){
+    geo.className='geo-badge geo-test';
+    geo.textContent='🧪 Testing mode — geofencing off';
+  } else if(token.geo){
+    geo.className='geo-badge geo-on';
+    geo.textContent=`📍 Geofenced · ${token.radius}m radius`;
+  } else {
+    geo.className='geo-badge geo-off';
+    geo.textContent='No geofencing';
+  }
+
+  // Build the same URL the student page expects
+  const studentBase = window.location.href.replace('screen.html','attendee.html').split('?')[0];
+  const payload = btoa(unescape(encodeURIComponent(tokenStr)));
+  const qrText  = studentBase + '?t=' + payload;
+
+  // Render QR
+  const container = document.getElementById('qr-container');
+  container.innerHTML = '';
+  if(qrObj){ try{ qrObj.clear(); }catch(e){} }
+  qrObj = new QRCode(container, {
+    text: qrText,
+    width: QR_SIZE, height: QR_SIZE,
+    colorDark: '#000000', colorLight: '#ffffff',
+    correctLevel: QRCode.CorrectLevel.M
+  });
+
+  startTimer();
+}
+
+function startTimer(){
+  if(timerInterval) clearInterval(timerInterval);
+  timerInterval = setInterval(()=>{
+    const rem = Math.max(0, tokenExpiry - Date.now());
+    document.getElementById('d-timer-fill').style.width = (rem/60000*100)+'%';
+    document.getElementById('d-timer-label').textContent =
+      rem > 0 ? `Refreshes in ${Math.ceil(rem/1000)}s` : 'Refreshing…';
+  }, 1000);
+}
+
+// Poll localStorage for new token every 2 seconds
+function pollToken(){
+  const saved = ld('att_token', null);
+  if(!saved || !saved.token) return;
+
+  // Only re-render if token changed
+  if(saved.token !== currentToken){
+    renderQR(saved.token, saved.expiry);
+  }
+
+  // Update timer expiry in case instructor refreshed
+  tokenExpiry = saved.expiry;
+}
+
+setInterval(pollToken, 2000);
+pollToken(); // run immediately on load
+
+// Listen for storage events (same browser, different tab)
+window.addEventListener('storage', e => {
+  if(e.key === 'att_token') pollToken();
+});
+
+function toggleFullscreen(){
+  if(!document.fullscreenElement){
+    document.documentElement.requestFullscreen().catch(()=>{});
+  } else {
+    document.exitFullscreen().catch(()=>{});
+  }
+}
+
+// F11 hint: press F to toggle fullscreen
+document.addEventListener('keydown', e => {
+  if(e.key === 'f' || e.key === 'F') toggleFullscreen();
+});
+</script>
+</body>
+</html>

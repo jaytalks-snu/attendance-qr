@@ -1,0 +1,649 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://script.google.com https://script.googleusercontent.com; connect-src *; style-src 'self' 'unsafe-inline'; img-src 'self' data:;">
+<title>Attendance Check-In</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #f5f4f0; --surface: #ffffff; --surface2: #f0ede8;
+    --border: rgba(0,0,0,0.1); --border-strong: rgba(0,0,0,0.2);
+    --text: #1a1917; --text-muted: #6b6a67; --text-faint: #9e9d9a;
+    --green: #2d7d4f; --green-bg: #e8f5ee; --green-border: #a3d4b5;
+    --red: #c0392b; --red-bg: #fdecea; --red-border: #f0b0aa;
+    --amber: #8a5a00; --amber-bg: #fdf4e0; --amber-border: #f0d080;
+    --blue: #1a5fa8; --blue-bg: #e8f0fb; --blue-border: #a3c0f0;
+    --radius: 10px; --radius-lg: 16px;
+  }
+  body { font-family: 'Georgia', serif; background: var(--bg); color: var(--text); min-height: 100vh; display: flex; flex-direction: column; }
+
+  header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 14px 20px; }
+  .header-top { display: flex; align-items: center; gap: 12px; }
+  .logo { width: 30px; height: 30px; background: var(--text); border-radius: 8px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .logo svg { width: 16px; height: 16px; stroke: white; fill: none; stroke-width: 2; }
+  .header-top h1 { font-size: 15px; font-weight: normal; flex: 1; }
+  .header-tag { font-family: monospace; font-size: 11px; background: var(--green-bg); color: var(--green); border: 1px solid var(--green-border); padding: 2px 8px; border-radius: 99px; }
+
+  /* Course info banner */
+  .course-banner { margin-top: 10px; padding: 10px 12px; background: var(--blue-bg); border: 1px solid var(--blue-border); border-radius: var(--radius); display: none; }
+  .course-title { font-size: 14px; color: var(--blue); font-weight: normal; }
+  .course-meta { font-family: monospace; font-size: 11px; color: var(--text-muted); margin-top: 3px; }
+
+  main { flex: 1; padding: 16px 20px; max-width: 420px; margin: 0 auto; width: 100%; }
+
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 16px; margin-bottom: 14px; }
+  .section-label { font-family: monospace; font-size: 11px; letter-spacing: 0.08em; color: var(--text-faint); text-transform: uppercase; margin-bottom: 10px; }
+
+  /* Name */
+  input[type=text] { width: 100%; padding: 10px 12px; border: 1px solid var(--border-strong); border-radius: var(--radius); font-size: 15px; background: var(--surface); color: var(--text); font-family: 'Georgia', serif; }
+  input[type=text]:focus { outline: none; border-color: var(--text); }
+  .name-display { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; background: var(--green-bg); border: 1px solid var(--green-border); border-radius: var(--radius); }
+  .name-display .name-text { font-size: 15px; color: var(--green); }
+  .name-display .name-edit {
+    font-family: monospace; font-size: 12px; color: white;
+    cursor: pointer; background: var(--amber); border: none;
+    padding: 5px 10px; border-radius: var(--radius); flex-shrink: 0;
+  }
+  .name-display .name-edit:hover { opacity: 0.85; }
+
+  .result-box { padding: 14px 16px; border-radius: var(--radius); font-size: 14px; line-height: 1.6; display: none; margin-top: 12px; }
+  .result-box.show { display: block; }
+  .result-box.success { background: var(--green-bg); color: var(--green); border: 1px solid var(--green-border); }
+  .result-box.error { background: var(--red-bg); color: var(--red); border: 1px solid var(--red-border); }
+  .result-box.warn { background: var(--amber-bg); color: var(--amber); border: 1px solid var(--amber-border); }
+  .result-icon { font-size: 20px; display: block; margin-bottom: 6px; }
+
+  /* Complete check-in button — large and prominent */
+  .checkin-btn {
+    display: none;
+    width: 100%;
+    padding: 20px;
+    margin-bottom: 16px;
+    background: var(--green);
+    color: white;
+    border: none;
+    border-radius: var(--radius-lg);
+    font-size: 20px;
+    font-family: 'Georgia', serif;
+    cursor: pointer;
+    text-align: center;
+    letter-spacing: 0.01em;
+    box-shadow: 0 4px 16px rgba(45,125,79,0.35);
+    animation: btn-pulse 2s ease-in-out infinite;
+    transition: opacity 0.15s, transform 0.1s;
+  }
+  .checkin-btn:active { opacity: 0.85; transform: scale(0.98); }
+  .checkin-btn .btn-sub { display: block; font-size: 13px; opacity: 0.8; margin-top: 4px; font-family: monospace; }
+  @keyframes btn-pulse {
+    0%,100% { box-shadow: 0 4px 16px rgba(45,125,79,0.35); }
+    50% { box-shadow: 0 4px 28px rgba(45,125,79,0.6); }
+  }
+
+  /* History — 8-session grid */
+  .history-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+  .hist-cell { border: 1px solid var(--border); border-radius: 8px; padding: 8px 4px; text-align: center; }
+  .hist-cell.has-data { background: var(--green-bg); border-color: var(--green-border); }
+  .hist-cell.today { border-color: var(--blue); background: var(--blue-bg); }
+  .hc-day { font-family: monospace; font-size: 10px; color: var(--text-faint); }
+  .hc-date { font-size: 10px; color: var(--text-muted); margin-top: 1px; }
+  .hc-hours { display: flex; justify-content: center; gap: 2px; margin-top: 4px; flex-wrap: wrap; }
+  .hc-dot { width: 10px; height: 10px; border-radius: 50%; border: 1px solid var(--border); }
+  .hc-dot.p { background: var(--green); border-color: var(--green); }
+
+  .note { font-size: 11px; color: var(--text-faint); font-family: monospace; text-align: center; margin-top: 8px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="header-top">
+    <div class="logo"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="8" height="8" rx="1"/><rect x="13" y="3" width="8" height="8" rx="1"/><rect x="3" y="13" width="8" height="8" rx="1"/><rect x="16" y="16" width="5" height="5" rx="0.5"/><rect x="13" y="13" width="2" height="2"/></svg></div>
+    <h1>Attendance Check-In</h1>
+    <span class="header-tag">Attendee</span>
+  </div>
+  <div class="course-banner" id="course-banner">
+    <div class="course-title" id="course-title-el"></div>
+    <div class="course-meta" id="course-meta-el"></div>
+  </div>
+</header>
+
+<main>
+  <div class="section-label">Your name</div>
+  <div class="card" id="name-card"></div>
+  <div id="auto-result-box" class="result-box" style="margin-bottom:14px;"></div>
+  <button id="auto-checkin-btn" class="checkin-btn">
+    <span class="btn-main-text">Tap to Check In</span>
+    <span class="btn-sub" id="checkin-btn-sub">이름 입력 후 탭하세요</span>
+  </button>
+
+  <div class="section-label">My attendance — all sessions</div>
+  <div class="card">
+    <select id="history-course-select" onchange="onHistoryCourseChange(this.value)" style="display:none;width:100%;padding:8px 10px;margin-bottom:12px;border:1px solid var(--border-strong);border-radius:var(--radius);font-size:13px;font-family:'Georgia',serif;background:var(--surface);color:var(--text);"></select>
+    <div class="history-grid" id="history-grid"></div>
+  </div>
+</main>
+
+<script>
+function ld(k,d){try{const v=localStorage.getItem(k);return v!==null?JSON.parse(v):d;}catch{return d;}}
+function sv(k,v){localStorage.setItem(k,JSON.stringify(v));}
+
+const DEFAULT_SESSIONS=Array.from({length:8},(_,i)=>({label:`Day ${i+1}`,date:''}));
+const DEFAULT_HOURS=[
+  {label:'Hour 1',time:'9:00–10:00 AM'},{label:'Hour 2',time:'10:00–11:00 AM'},
+  {label:'Hour 3',time:'11:00–12:00 PM'},{label:'Hour 4',time:'12:00–1:00 PM'},
+];
+
+// ── Multi-course support ────────────────────────────────────────────────────
+// A single device may scan QR codes from several different instructors' courses
+// (each with its own Apps Script backend). Everything specific to one course —
+// its day/hour schedule, this student's attendance in it, its script/secret key —
+// is kept in att_courses, keyed by that course's script URL (already unique per
+// instructor). att_active_course is simply "whichever course was scanned most
+// recently" — it drives the check-in flow and the top banner, exactly like the
+// single-course version did. The saved name (att_student_name) stays global:
+// it's the same person no matter which course they're checking into.
+function getCourses(){ return ld('att_courses',{}); }
+function getCourse(id){ return getCourses()[id] || {sessions:DEFAULT_SESSIONS,hours:DEFAULT_HOURS,records:{}}; }
+function saveCourse(id,patch){
+  if(!id)return;
+  const all=getCourses();
+  all[id]=Object.assign({sessions:DEFAULT_SESSIONS,hours:DEFAULT_HOURS,records:{}}, all[id]||{}, patch);
+  sv('att_courses',all);
+}
+function getActiveCourseId(){ return localStorage.getItem('att_active_course')||''; }
+function setActiveCourseId(id){ if(id)localStorage.setItem('att_active_course',id); }
+
+// One-time migration from the old single-course keys, so anyone who already
+// has a course checked into on this device doesn't lose that history.
+(function migrateLegacyCourseData(){
+  if(localStorage.getItem('att_courses')!==null)return; // already migrated (or fresh device)
+  const legacyUrl=localStorage.getItem('att_script_url');
+  if(!legacyUrl)return;
+  const course=ld('att_course_pub',{});
+  saveCourse(legacyUrl,{
+    courseTitle:course.title||'', courseNumber:course.number||'', teacherName:course.teacher||'',
+    secretKey:localStorage.getItem('att_secret_key')||'',
+    sessions:ld('att_sessions',DEFAULT_SESSIONS),
+    hours:ld('att_hours',DEFAULT_HOURS),
+    records:ld('att_records',{}),
+  });
+  setActiveCourseId(legacyUrl);
+})();
+
+function getSessions(courseId){return getCourse(courseId||getActiveCourseId()).sessions||DEFAULT_SESSIONS;}
+function getHours(courseId){return getCourse(courseId||getActiveCourseId()).hours||DEFAULT_HOURS;}
+// Before a scan is confirmed (processCheckIn hasn't run yet), the token's own
+// sessions/hours must be used directly — the active course in storage still
+// points at whichever course was checked into last, which may be a different one.
+function sessionsFromToken(token){return Array.isArray(token.sessions)?token.sessions:getSessions(token.scriptUrl);}
+function hoursFromToken(token){return Array.isArray(token.hours)?token.hours:getHours(token.scriptUrl);}
+
+// ── Course banner (always reflects the most recently scanned course) ─────────
+function renderCourseBanner(){
+  const c=getCourse(getActiveCourseId());
+  if(c.courseTitle){
+    document.getElementById('course-title-el').textContent=c.courseTitle;
+    const meta=[c.courseNumber,c.teacherName?'Instructor: '+c.teacherName:''].filter(Boolean).join(' · ');
+    document.getElementById('course-meta-el').textContent=meta;
+    document.getElementById('course-banner').style.display='block';
+    document.title=c.courseTitle+' · Attendance';
+  }
+}
+
+// ── Name persistence ──────────────────────────────────────────────────────────
+function getSavedName(){return localStorage.getItem('att_student_name')||'';}
+function setSavedName(n){localStorage.setItem('att_student_name',n);}
+function clearSavedName(){localStorage.removeItem('att_student_name');}
+function getCurrentName(){
+  const saved=getSavedName();if(saved)return saved;
+  const input=document.getElementById('student-name');
+  return input?input.value.trim():'';
+}
+function renderNameCard(){
+  const card=document.getElementById('name-card');
+  const saved=getSavedName();
+  if(saved){
+    card.innerHTML=`
+      <div class="name-display">
+        <span class="name-text">👤 ${saved}</span>
+      </div>
+      <div style="font-size:11px;font-family:monospace;color:var(--text-faint);margin-top:8px;">
+        이름 변경이 필요하면 교사에게 문의하세요.
+      </div>`;
+  }else{
+    card.innerHTML=`
+      <input type="text" id="student-name" placeholder="성명을 입력하세요 (예: 홍길동)" autocomplete="name" oninput="onNameInput()" style="font-size:16px;padding:12px;">
+      <div style="font-size:11px;font-family:monospace;color:var(--text-faint);margin-top:8px;">
+        정확하게 입력해 주세요. 한 번 저장되면 이후 변경할 수 없습니다.
+      </div>`;
+  }
+  renderHistory();
+}
+
+function onNameInput(){
+  const input=document.getElementById('student-name');
+  const name=input?.value.trim();
+  const btn=document.getElementById('auto-checkin-btn');
+  const sub=document.getElementById('checkin-btn-sub');
+  if(!btn)return;
+  if(!name){btn.style.display='none';return;}
+  if(activeToken){
+    const SESSIONS=sessionsFromToken(activeToken);const HOURS=hoursFromToken(activeToken);
+    const sessLabel=SESSIONS[activeToken.session]?.date?fmtDate(SESSIONS[activeToken.session].date):'Day '+(activeToken.session+1);
+    const hourLabel=HOURS[activeToken.hour]?.time||('Hour '+(activeToken.hour+1));
+    if(sub)sub.textContent=sessLabel+' · '+hourLabel;
+    btn.querySelector('.btn-main-text').textContent='Tap to Check In';
+    btn.style.display='block';
+    btn.onclick=()=>{
+      const n=document.getElementById('student-name')?.value.trim();
+      if(!n){alert('이름을 먼저 입력해 주세요.');return;}
+      btn.style.display='none';
+      processCheckIn(JSON.stringify(activeToken));
+    };
+  } else {
+    btn.style.display='none';
+  }
+}
+function editName(){
+  previousName=getSavedName();
+  clearSavedName();
+  document.getElementById('auto-result-box').className='result-box';
+  document.getElementById('auto-checkin-btn').style.display='none';
+  const syncEl=document.getElementById('sync-status');
+  if(syncEl)syncEl.remove();
+  renderNameCard();
+  // After renderNameCard creates the input, focus it and show prompt if token exists
+  setTimeout(()=>{
+    const input=document.getElementById('student-name');
+    if(input){
+      input.focus();
+      // If there's an active token waiting, show instruction
+      if(activeToken){
+        showAutoResult('warn','✏️','위에 이름을 입력하면 체크인 버튼이 나타납니다.');
+      }
+    }
+  },50);
+}
+
+// ── Geolocation util ─────────────────────────────────────────────────────────
+function haversine(a,b,c,d){const R=6371000,dL=(c-a)*Math.PI/180,dl=(d-b)*Math.PI/180,x=Math.sin(dL/2)**2+Math.cos(a*Math.PI/180)*Math.cos(c*Math.PI/180)*Math.sin(dl/2)**2;return R*2*Math.atan2(Math.sqrt(x),Math.sqrt(1-x));}
+
+// ── Google Sheets sync ────────────────────────────────────────────────────────
+function getScriptURL(courseId){return courseId||getActiveCourseId();}
+function getSecretKey(courseId){return getCourse(courseId||getActiveCourseId()).secretKey||'';}
+function buildStudentURL(baseUrl,params,secretKey){
+  const key=secretKey!==undefined?secretKey:getSecretKey();
+  if(key)params.key=key;
+  return baseUrl+'?'+new URLSearchParams(params).toString();
+}
+
+function showSyncStatus(msg,color){
+  let el=document.getElementById('sync-status');
+  if(!el){
+    el=document.createElement('div');
+    el.id='sync-status';
+    el.style.cssText='margin-top:10px;padding:8px 12px;border-radius:8px;font-family:monospace;font-size:11px;line-height:1.6;background:var(--surface2);border:1px solid var(--border);';
+    document.getElementById('auto-result-box').insertAdjacentElement('afterend',el);
+  }
+  el.style.color=color||'var(--text-muted)';
+  el.textContent=msg;
+}
+
+function sendToSheet(payload,courseId){
+  courseId=courseId||getActiveCourseId();
+  const url=getScriptURL(courseId);
+  if(!url){
+    showSyncStatus('⚠ No script URL — check-in saved locally only','var(--amber)');
+    return;
+  }
+  showSyncStatus('Syncing to Google Sheets…');
+
+  const cbName='_ci'+Date.now();
+  const script=document.createElement('script');
+
+  const timer=setTimeout(()=>{
+    delete window[cbName];script.remove();
+    showSyncStatus('❌ Sync timed out — saved locally only. URL: '+url.slice(0,60)+'…','var(--red)');
+  },15000);
+
+  window[cbName]=function(data){
+    clearTimeout(timer);delete window[cbName];script.remove();
+    if(data&&data.status==='ok'){
+      showSyncStatus('✓ Synced to Google Sheets ('+data.message+')','var(--green)');
+      // 시트 저장 완료 후 해당 학생 기록만 다시 조회
+      setTimeout(()=>renderHistory(courseId), 500);
+    } else {
+      showSyncStatus('❌ Sheet error: '+(data&&data.message?data.message:'unknown'),'var(--red)');
+    }
+  };
+
+  script.onerror=function(){
+    clearTimeout(timer);delete window[cbName];script.remove();
+    showSyncStatus('❌ Script blocked — URL may be wrong or CSP is blocking it','var(--red)');
+  };
+
+  script.src=buildStudentURL(url,{
+    action:       'checkin',
+    name:         payload.name         ||'',
+    previousName: payload.previousName ||'',
+    session:      payload.session,
+    hour:         payload.hour,
+    sessionDate:  payload.sessionDate  ||'',
+    hourLabel:    payload.hourLabel    ||'',
+    checkInTime:  payload.checkInTime  ||'',
+    dist:         payload.dist!==null&&payload.dist!==undefined?payload.dist:'',
+    courseTitle:  payload.courseTitle  ||'',
+    courseNumber: payload.courseNumber ||'',
+    teacherName:  payload.teacherName  ||'',
+  },getSecretKey(courseId))+'&callback='+cbName;
+  document.head.appendChild(script);
+  showSyncStatus('Connecting to: '+url.slice(0,60)+'…');
+}
+
+// ── Check-in ──────────────────────────────────────────────────────────────────
+function showAutoResult(type,icon,msg){const el=document.getElementById('auto-result-box');el.className='result-box show '+type;el.innerHTML=`<span class="result-icon">${icon}</span>${msg}`;}
+
+function processCheckIn(raw){
+  let name=getCurrentName();
+  if(!name){showAutoResult('warn','✏️','Please enter your name before scanning.');return;}
+  let token;
+  try{token=JSON.parse(raw);}catch{showAutoResult('error','❌','Invalid check-in link. Please scan the QR code again.');return;}
+  if(Date.now()-token.ts>63000){showAutoResult('error','⏰','QR code expired. Ask your teacher to refresh it.');return;}
+  if(token.session===undefined||token.hour===undefined){showAutoResult('error','❌','Unrecognised QR code.');return;}
+  if(!token.scriptUrl){showAutoResult('error','❌','Unrecognised QR code.');return;}
+
+  const courseId=token.scriptUrl;
+
+  // Save/update this course's bundle FIRST — everything below (rename,
+  // duplicate check, recording, sheet sync) reads from it via courseId.
+  saveCourse(courseId,{
+    courseTitle:token.courseTitle||'', courseNumber:token.courseNumber||'', teacherName:token.teacherName||'',
+    secretKey:token.secretKey||'',
+    // Day/hour config is configurable per course — sync it from the QR every
+    // scan so "My attendance" always matches the instructor's real schedule.
+    sessions:Array.isArray(token.sessions)?token.sessions:getCourse(courseId).sessions,
+    hours:Array.isArray(token.hours)?token.hours:getCourse(courseId).hours,
+  });
+  setActiveCourseId(courseId);
+  renderCourseBanner();
+
+  // Apply any pending name corrections from teacher — BEFORE proceeding with check-in
+  if(token.renames&&typeof token.renames==='object'){
+    const currentSaved=getSavedName();
+    if(currentSaved&&token.renames[currentSaved]){
+      const newName=token.renames[currentSaved];
+      // Move local records (within this course only) to the new name
+      const course=getCourse(courseId);
+      const recs=course.records||{};
+      if(recs[currentSaved]){
+        recs[newName]=recs[newName]||{};
+        Object.keys(recs[currentSaved]).forEach(si=>{
+          recs[newName][si]=recs[newName][si]||{};
+          Object.assign(recs[newName][si],recs[currentSaved][si]);
+        });
+        delete recs[currentSaved];
+        saveCourse(courseId,{records:recs});
+      }
+      setSavedName(newName);
+      name=newName; // use new name for the rest of check-in
+      showAutoResult('warn','✏️',`이름이 "${currentSaved}"에서 "${newName}"으로 수정되었습니다.`);
+      renderNameCard();
+
+      // Delete from Renames sheet so teacher banner disappears
+      const cbName='_dr'+Date.now();
+      const script=document.createElement('script');
+      const timer=setTimeout(()=>{delete window[cbName];script.remove();},10000);
+      window[cbName]=function(){clearTimeout(timer);delete window[cbName];script.remove();};
+      script.src=buildStudentURL(courseId,{action:'delete_rename',oldName:currentSaved},getSecretKey(courseId))+'&callback='+cbName;
+      document.head.appendChild(script);
+
+      // Also notify via BroadcastChannel (same device fallback)
+      try{new BroadcastChannel('att_sync').postMessage({type:'rename_applied',oldName:currentSaved,newName});}catch(e){}
+      const applied=ld('att_renames_applied',{});
+      applied[currentSaved]=Date.now();
+      sv('att_renames_applied',applied);
+    }
+  }
+
+  // Use the (possibly updated) name for duplicate check
+  const attendance=getCourse(courseId).records||{};
+  if(attendance[name]?.[token.session]?.[token.hour]){
+    showAutoResult('warn','✅',`Already checked in for Day ${token.session+1}, Hour ${token.hour+1}.`);
+    renderHistory();return;
+  }
+
+  if(token.geo&&token.lat!==null&&token.lng!==null){
+    showAutoResult('warn','📍','Verifying your location…');
+    if(!navigator.geolocation){showAutoResult('error','❌','Location not supported by your browser.');return;}
+    navigator.geolocation.getCurrentPosition(pos=>{
+      const dist=haversine(pos.coords.latitude,pos.coords.longitude,token.lat,token.lng);
+      if(dist>token.radius){showAutoResult('error','📍',`You are ${Math.round(dist)}m from the classroom. Must be within ${token.radius}m.`);}
+      else{recordAttendance(name,token.session,token.hour,dist,courseId);}
+    },err=>{showAutoResult('error','❌','Location denied: '+err.message);},{enableHighAccuracy:true,timeout:10000});
+  }else{
+    recordAttendance(name,token.session,token.hour,null,courseId);
+  }
+}
+
+function recordAttendance(name,si,hi,dist,courseId){
+  courseId=courseId||getActiveCourseId();
+  const course=getCourse(courseId);
+  const attendance=course.records||{};
+  if(!attendance[name])attendance[name]={};
+  if(!attendance[name][si])attendance[name][si]={};
+  if(attendance[name][si][hi]){showAutoResult('warn','✅',`Already checked in for Day ${si+1}, Hour ${hi+1}.`);return;}
+  const now=new Date();
+  attendance[name][si][hi]={time:now.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',hour12:true}),date:now.toLocaleDateString(),dist:dist!==null?Math.round(dist):null};
+  saveCourse(courseId,{records:attendance});
+  // Notify teacher page
+  if(typeof BroadcastChannel!=='undefined'){try{new BroadcastChannel('att_sync').postMessage('att_records');}catch(e){}}
+  // Hide check-in button
+  const btn=document.getElementById('auto-checkin-btn');
+  if(btn)btn.style.display='none';  // Send to Google Sheet
+  sendToSheet({
+    action:'checkin',
+    name,
+    previousName: previousName||'',
+    session:si,
+    hour:hi,
+    sessionDate:getSessions(courseId)[si]?.date||'',
+    hourLabel:getHours(courseId)[hi]?.time||('Hour '+(hi+1)),
+    checkInTime:attendance[name][si][hi].time,
+    dist:dist!==null?Math.round(dist):null,
+    courseTitle:course.courseTitle||'',
+    courseNumber:course.courseNumber||'',
+    teacherName:course.teacherName||'',
+  },courseId);
+  previousName=null; // clear after use
+  // Name may have been updated by rename — ensure saved and card reflects it
+  if(getSavedName()!==name)setSavedName(name);
+  renderNameCard();
+  const s=getSessions(courseId)[si];
+  const geoNote=dist!==null?` · ${Math.round(dist)}m from classroom`:'';
+  const dateNote=s.date?` (${fmtDate(s.date)})`:'';
+  const msg=`Checked in for <strong>Day ${si+1}${dateNote}, Hour ${hi+1}</strong> at ${attendance[name][si][hi].time}${geoNote}`;
+  showAutoResult('success','✅',msg);
+
+  // Show local data immediately (fast)
+  renderHistory(courseId);
+
+  // After sheet sync completes (~3s), fetch latest from sheet to reflect any manual entries
+  setTimeout(()=>renderHistory(courseId), 3500);
+}
+
+// ── History grid ──────────────────────────────────────────────────────────────
+function todayStr(){const d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;}
+function fmtDate(iso){if(!iso)return '';const[y,m,d]=iso.split('-');return new Date(y,m-1,d).toLocaleDateString(undefined,{month:'short',day:'numeric'});}
+
+let selectedHistoryCourse=null; // which course's history is currently shown (independent of the active/most-recently-scanned course)
+
+function onHistoryCourseChange(courseId){
+  selectedHistoryCourse=courseId;
+  renderHistory(courseId);
+}
+
+function renderCourseSelect(activeId){
+  const sel=document.getElementById('history-course-select');
+  const courses=getCourses();
+  const ids=Object.keys(courses);
+  if(ids.length<2){ sel.style.display='none'; return; } // only bother showing a picker once there's something to pick between
+  sel.style.display='block';
+  sel.innerHTML=ids.map(id=>{
+    const c=courses[id];
+    const label=[c.courseTitle,c.teacherName].filter(Boolean).join(' · ')||'강좌';
+    return `<option value="${escapeHtml(id)}"${id===activeId?' selected':''}>${escapeHtml(label)}</option>`;
+  }).join('');
+}
+function escapeHtml(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+
+function renderHistory(courseId){
+  if(courseId) selectedHistoryCourse=courseId;
+  courseId=selectedHistoryCourse||getActiveCourseId();
+
+  const name=getSavedName(); // 저장된 이름만 — 입력 중인 이름은 조회 불가
+  const grid=document.getElementById('history-grid');
+  const today=todayStr();
+
+  renderCourseSelect(courseId);
+
+  if(!name){
+    grid.innerHTML='<div style="grid-column:1/-1;font-size:12px;font-family:monospace;color:var(--text-faint);padding:8px 0;">QR 스캔 후 체크인하시면 출석 기록이 표시됩니다.</div>';
+    return;
+  }
+  if(!courseId){
+    grid.innerHTML='<div style="grid-column:1/-1;font-size:12px;font-family:monospace;color:var(--text-faint);padding:8px 0;">QR 스캔 후 체크인하시면 출석 기록이 표시됩니다.</div>';
+    return;
+  }
+
+  const SESSIONS=getSessions(courseId);
+  const HOURS=getHours(courseId);
+
+  // 항상 로컬 데이터 먼저 표시
+  function renderGrid(rec){
+    grid.innerHTML=SESSIONS.map((s,si)=>{
+      const sr=rec[si]||{};
+      const hours=Object.keys(sr).length;
+      const isToday=s.date&&s.date===today;
+      const hasData=hours>0;
+      const dots=Array.from({length:HOURS.length},(_,hi)=>`<div class="hc-dot${sr[hi]?' p':''}" title="${sr[hi]?sr[hi].time:'결석'}"></div>`).join('');
+      return `<div class="hist-cell${hasData?' has-data':''}${isToday?' today':''}">
+        <div class="hc-day">Day ${si+1}</div>
+        <div class="hc-date">${s.date?fmtDate(s.date):'—'}</div>
+        <div class="hc-hours">${dots}</div>
+      </div>`;
+    }).join('');
+  }
+
+  // 로컬 데이터 먼저 표시 (조회 중에도 유지)
+  const course=getCourse(courseId);
+  const localRec=(course.records||{})[name]||{};
+  const url=getScriptURL(courseId);
+  if(Object.keys(localRec).length>0 || !url){
+    renderGrid(localRec);
+  }
+
+  // 구글 시트에서 해당 학생 기록만 조회 (빠르고 개인정보 안전)
+  if(!url)return;
+
+  const cbName='_hist'+Date.now();
+  const script=document.createElement('script');
+  const timer=setTimeout(()=>{delete window[cbName];script.remove();},10000);
+  window[cbName]=function(data){
+    clearTimeout(timer);delete window[cbName];script.remove();
+    if(!data||data.status!=='ok')return;
+    const sheetRec=data.record||{};
+    // 로컬과 시트 데이터 합치기
+    const c=getCourse(courseId);
+    const recs=c.records||{};
+    const merged=Object.assign({},recs[name]||{});
+    Object.keys(sheetRec).forEach(si=>{
+      if(!merged[si])merged[si]={};
+      Object.assign(merged[si],sheetRec[si]);
+    });
+    recs[name]=merged;
+    saveCourse(courseId,{records:recs});
+    // 그 사이 사용자가 다른 강좌로 전환했으면 지금 화면을 덮어쓰지 않음
+    if(selectedHistoryCourse===courseId||(!selectedHistoryCourse&&courseId===getActiveCourseId())) renderGrid(merged);
+  };
+  script.src=buildStudentURL(url,{action:'get_student_records',name},getSecretKey(courseId))+'&callback='+cbName;
+  document.head.appendChild(script);
+}
+
+// ── Rename in sheet ───────────────────────────────────────────────────────────
+function renameInSheet(oldName, newName, courseId){
+  courseId=courseId||getActiveCourseId();
+  const url=getScriptURL(courseId);
+  if(!url||!oldName||!newName||oldName===newName)return;
+  const cbName='_rn'+Date.now();
+  const script=document.createElement('script');
+  const timer=setTimeout(()=>{delete window[cbName];script.remove();},15000);
+  window[cbName]=function(){clearTimeout(timer);delete window[cbName];script.remove();renderHistory();};
+  script.src=buildStudentURL(url,{action:'rename',oldName,newName},getSecretKey(courseId))+'&callback='+cbName;
+  document.head.appendChild(script);
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+renderCourseBanner();
+renderNameCard();
+
+// ── Active token (kept in memory so editName can re-use it) ──────────────────
+let activeToken = null;
+let previousName = null; // tracks name before correction
+
+// Auto check-in from URL token (one-scan flow)
+(function(){
+  const params=new URLSearchParams(window.location.search);
+  const t=params.get('t');
+  if(!t)return;
+
+  // Clean the URL so refreshing doesn't re-trigger
+  window.history.replaceState({},'',window.location.pathname);
+
+  let token;
+  try{ token=JSON.parse(decodeURIComponent(escape(atob(t)))); }
+  catch(e){ showAutoResult('error','❌','Invalid check-in link. Please scan again.'); return; }
+
+  activeToken=token; // save for use after name edit
+
+  showCheckinButton(token);
+})();
+
+function showCheckinButton(token){
+  const name=getCurrentName();
+  const btn=document.getElementById('auto-checkin-btn');
+  const sub=document.getElementById('checkin-btn-sub');
+  const SESSIONS=sessionsFromToken(token);const HOURS=hoursFromToken(token);
+  const sessLabel=SESSIONS[token.session]?.date?fmtDate(SESSIONS[token.session].date):'Day '+(token.session+1);
+  const hourLabel=HOURS[token.hour]?.time||('Hour '+(token.hour+1));
+
+  if(!name){
+    // 이름 없음 — 입력 안내 메시지 표시, 버튼은 onNameInput()이 처리
+    showAutoResult('warn','✏️','위에 이름을 입력한 후 나타나는 버튼을 눌러 체크인하세요.');
+    if(sub)sub.textContent='이름 입력 후 탭하세요';
+    // 버튼 숨김 — onNameInput이 이름 타이핑 시 표시함
+    btn.style.display='none';
+    return;
+  }
+
+  // 이름 저장됨 — 버튼 표시 후 자동 체크인
+  if(sub)sub.textContent=sessLabel+' · '+hourLabel;
+  btn.style.display='block';
+  btn.onclick=()=>{
+    btn.style.display='none';
+    processCheckIn(JSON.stringify(token));
+  };
+  setTimeout(()=>{
+    btn.style.display='none';
+    processCheckIn(JSON.stringify(token));
+  }, 300);
+}
+
+window.addEventListener('storage',e=>{
+  if(e.key==='att_courses')renderHistory();
+  if(e.key==='att_active_course')renderCourseBanner();
+});
+</script>
+</body>
+</html>

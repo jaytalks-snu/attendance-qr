@@ -1,0 +1,2008 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://script.google.com https://script.googleusercontent.com; connect-src *; style-src 'self' 'unsafe-inline';">
+<title>Attendance — Instructor Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #f5f4f0; --surface: #ffffff; --surface2: #f0ede8;
+    --border: rgba(0,0,0,0.1); --border-strong: rgba(0,0,0,0.2);
+    --text: #1a1917; --text-muted: #6b6a67; --text-faint: #9e9d9a;
+    --green: #2d7d4f; --green-bg: #e8f5ee; --green-border: #a3d4b5;
+    --red: #c0392b; --red-bg: #fdecea; --red-border: #f0b0aa;
+    --amber: #8a5a00; --amber-bg: #fdf4e0; --amber-border: #f0d080;
+    --blue: #1a5fa8; --blue-bg: #e8f0fb; --blue-border: #a3c0f0;
+    --radius: 10px; --radius-lg: 16px;
+  }
+  body { font-family: 'Georgia', serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+
+  /* Login */
+  #login-screen { position: fixed; inset: 0; background: var(--bg); display: none; align-items: center; justify-content: center; z-index: 999; }
+  .login-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 32px 28px; width: 320px; text-align: center; }
+  .login-icon { width: 48px; height: 48px; background: var(--text); border-radius: 12px; display: flex; align-items: center; justify-content: center; margin: 0 auto 16px; }
+  .login-icon svg { width: 24px; height: 24px; stroke: white; fill: none; stroke-width: 2; }
+  .login-card h2 { font-size: 17px; font-weight: normal; margin-bottom: 4px; }
+  .login-card p { font-size: 12px; color: var(--text-muted); font-family: monospace; margin-bottom: 20px; }
+  .login-pw { width: 100%; padding: 9px 12px; border: 1px solid var(--border-strong); border-radius: var(--radius); font-size: 14px; background: var(--surface); color: var(--text); font-family: monospace; letter-spacing: 0.15em; margin-bottom: 10px; text-align: center; }
+  .login-pw:focus { outline: none; border-color: var(--text); }
+  .login-error { font-size: 12px; color: var(--red); font-family: monospace; margin-bottom: 10px; display: none; }
+
+  /* Profile picker (multiple instructors sharing one device) */
+  #profile-picker { position: fixed; inset: 0; background: var(--bg); display: none; align-items: center; justify-content: center; z-index: 999; padding: 20px; }
+  .picker-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 28px 24px; width: 360px; max-width: 100%; }
+  .picker-card h2 { font-size: 17px; font-weight: normal; margin-bottom: 4px; text-align: center; }
+  .picker-card > p { font-size: 12px; color: var(--text-muted); font-family: monospace; margin-bottom: 18px; text-align: center; }
+  .profile-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; max-height: 320px; overflow-y: auto; }
+  .profile-row { display: flex; align-items: center; gap: 8px; border: 1px solid var(--border-strong); border-radius: var(--radius); padding: 10px 12px; cursor: pointer; background: var(--surface); text-align: left; }
+  .profile-row:hover { background: var(--surface2); }
+  .profile-row .profile-main { flex: 1; min-width: 0; }
+  .profile-row .profile-nick { font-size: 14px; color: var(--text); }
+  .profile-row .profile-sub { font-size: 11px; font-family: monospace; color: var(--text-faint); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .profile-row .profile-edit { flex-shrink: 0; background: none; border: none; font-size: 13px; cursor: pointer; padding: 4px 6px; color: var(--text-faint); }
+  .profile-row .profile-edit:hover { color: var(--text); }
+  .profile-empty { font-size: 12px; font-family: monospace; color: var(--text-faint); text-align: center; padding: 10px 0 16px; }
+  .picker-add { border-top: 1px dashed var(--border-strong); padding-top: 14px; margin-top: 4px; }
+  .picker-add input { width: 100%; padding: 8px 10px; border: 1px solid var(--border-strong); border-radius: var(--radius); font-size: 12px; font-family: monospace; background: var(--surface); margin-bottom: 8px; }
+  .picker-back { display: block; text-align: center; font-size: 12px; font-family: monospace; color: var(--text-muted); margin-top: 14px; cursor: pointer; background: none; border: none; width: 100%; }
+  .picker-back:hover { color: var(--text); }
+
+  /* Buttons */
+  .btn { padding: 9px 18px; border: 1px solid var(--border-strong); border-radius: var(--radius); background: var(--surface); color: var(--text); font-size: 13px; font-family: 'Georgia', serif; cursor: pointer; transition: all 0.15s; }
+  .btn:hover { background: var(--surface2); }
+  .btn-primary { background: var(--text); color: white; border-color: var(--text); }
+  .btn-primary:hover { opacity: 0.85; }
+  .btn-sm { padding: 5px 11px; font-size: 12px; }
+  .btn-full { width: 100%; }
+  .btn-danger { color: var(--red); border-color: var(--red-border); }
+  .btn-danger:hover { background: var(--red-bg); }
+  .btn-row { display: flex; gap: 8px; justify-content: center; margin-top: 12px; flex-wrap: wrap; }
+
+  /* Layout */
+  #app { display: none; }
+  header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 12px 20px; display: flex; align-items: center; gap: 10px; position: sticky; top: 0; z-index: 100; }
+  .logo { width: 28px; height: 28px; background: var(--text); border-radius: 7px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .logo svg { width: 15px; height: 15px; stroke: white; fill: none; stroke-width: 2; }
+  .header-titles { flex: 1; min-width: 0; }
+  .header-titles h1 { font-size: 14px; font-weight: normal; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .header-titles p { font-size: 11px; color: var(--text-muted); font-family: monospace; margin-top: 1px; }
+  .header-tag { font-family: monospace; font-size: 11px; background: var(--amber-bg); color: var(--amber); border: 1px solid var(--amber-border); padding: 2px 8px; border-radius: 99px; flex-shrink: 0; }
+
+  .tab-bar { display: flex; background: var(--surface); border-bottom: 1px solid var(--border); padding: 0 16px; overflow-x: auto; }
+  .tab { padding: 10px 13px; font-size: 12px; font-family: monospace; color: var(--text-muted); cursor: pointer; border-bottom: 2px solid transparent; transition: all 0.15s; user-select: none; white-space: nowrap; }
+  .tab.active { color: var(--text); border-bottom-color: var(--text); }
+
+  .panel { display: none; padding: 16px 20px; max-width: 600px; margin: 0 auto; }
+  .panel.active { display: block; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 16px; margin-bottom: 12px; }
+  .section-label { font-family: monospace; font-size: 11px; letter-spacing: 0.08em; color: var(--text-faint); text-transform: uppercase; margin-bottom: 8px; margin-top: 18px; }
+  .section-label:first-child { margin-top: 0; }
+
+  /* Session chips */
+  .session-scroll { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; margin-bottom: 12px; }
+  .session-chip { flex-shrink: 0; border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 14px; cursor: pointer; background: var(--surface); transition: all 0.15s; text-align: center; min-width: 88px; }
+  .session-chip:hover { border-color: var(--border-strong); background: var(--surface2); }
+  .session-chip.active { border: 2px solid var(--text); }
+  .session-chip.today { border-color: var(--blue); background: var(--blue-bg); }
+  .session-chip.today.active { border: 2px solid var(--blue); }
+  .sc-num { font-family: monospace; font-size: 10px; color: var(--text-faint); letter-spacing: 0.05em; }
+  .sc-date { font-size: 12px; margin-top: 2px; }
+  .sc-count { font-size: 10px; color: var(--text-muted); margin-top: 3px; }
+
+  /* Hour grid */
+  .hour-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .hour-card { border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; cursor: pointer; transition: all 0.15s; background: var(--surface); text-align: left; }
+  .hour-card:hover { border-color: var(--border-strong); background: var(--surface2); }
+  .hour-card.active { border: 2px solid var(--text); }
+  .h-num { font-family: monospace; font-size: 10px; color: var(--text-faint); letter-spacing: 0.05em; margin-bottom: 3px; }
+  .h-time { font-size: 12px; }
+  .h-count { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
+
+  /* QR */
+  .qr-wrap { text-align: center; padding: 14px 0 8px; }
+  #qr-canvas-container { display: inline-block; border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; background: white; }
+  #qr-canvas-container canvas, #qr-canvas-container img { display: block; border-radius: 4px; }
+  .badge { display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; border-radius: 99px; font-family: monospace; font-size: 11px; margin-top: 10px; }
+  .badge-green { background: var(--green-bg); color: var(--green); border: 1px solid var(--green-border); }
+  .badge-red { background: var(--red-bg); color: var(--red); border: 1px solid var(--red-border); }
+  .timer-bar { height: 3px; background: var(--surface2); border-radius: 2px; margin-top: 12px; overflow: hidden; }
+  .timer-fill { height: 100%; background: var(--text); border-radius: 2px; transition: width 1s linear; }
+  .timer-label { font-family: monospace; font-size: 11px; color: var(--text-faint); margin-top: 5px; text-align: center; }
+
+  /* Forms */
+  .row { display: flex; align-items: center; gap: 10px; }
+  .row label { font-size: 13px; flex: 1; }
+  .row small { font-size: 11px; color: var(--text-muted); display: block; margin-top: 2px; }
+  .toggle { position: relative; width: 40px; height: 22px; flex-shrink: 0; }
+  .toggle input { opacity: 0; width: 0; height: 0; }
+  .toggle-slider { position: absolute; inset: 0; cursor: pointer; background: var(--border-strong); border-radius: 22px; transition: 0.2s; }
+  .toggle-slider::before { content: ''; position: absolute; width: 16px; height: 16px; left: 3px; bottom: 3px; background: white; border-radius: 50%; transition: 0.2s; }
+  input:checked + .toggle-slider { background: var(--green); }
+  input:checked + .toggle-slider::before { transform: translateX(18px); }
+  input[type=number], input[type=text], input[type=password], input[type=date] {
+    padding: 7px 10px; border: 1px solid var(--border-strong); border-radius: var(--radius);
+    font-size: 13px; background: var(--surface); color: var(--text); font-family: monospace;
+  }
+  input:focus { outline: none; border-color: var(--text); }
+  .field-group { margin-bottom: 10px; }
+  .field-label { font-family: monospace; font-size: 11px; color: var(--text-faint); margin-bottom: 4px; }
+  .field-group input[type=text] { width: 100%; }
+
+  /* URL box */
+  .url-box { background: var(--surface2); border: 1px dashed var(--border-strong); border-radius: var(--radius); padding: 10px 14px; font-family: monospace; font-size: 12px; word-break: break-all; color: var(--text-muted); margin-top: 8px; cursor: pointer; transition: background 0.15s; }
+  .url-box:hover { background: #e8e5de; }
+  .url-copy-hint { font-size: 11px; color: var(--text-faint); margin-top: 5px; text-align: center; }
+
+  /* Records */
+  .stats-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 12px; }
+  .stat { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px; text-align: center; }
+  .stat-num { font-size: 20px; font-family: monospace; }
+  .stat-lbl { font-size: 10px; color: var(--text-muted); margin-top: 2px; font-family: monospace; }
+  .rec-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .rec-table th { font-family: monospace; font-size: 10px; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.05em; padding: 6px 4px; border-bottom: 1px solid var(--border); text-align: left; font-weight: normal; white-space: nowrap; }
+  .rec-table td { padding: 6px 4px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+  .rec-table tr:last-child td { border-bottom: none; }
+  .rec-table tr:hover td { background: var(--surface2); }
+  .mini-dot { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 50%; font-size: 9px; border: 1px solid var(--border); font-family: monospace; }
+  .mini-dot.p { background: var(--green-bg); color: var(--green); border-color: var(--green-border); }
+  /* 4-dot session view */
+  .session-dots { display: inline-flex; gap: 2px; align-items: center; }
+  .session-dot { width: 8px; height: 8px; border-radius: 50%; border: 1.5px solid var(--border-strong); cursor: pointer; transition: all 0.15s; flex-shrink: 0; }
+  .session-dot.p { background: var(--green); border-color: var(--green); }
+  .session-dot:hover { transform: scale(1.4); opacity: 0.8; }
+  .filter-bar { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
+  .filter-bar select { padding: 6px 10px; border: 1px solid var(--border-strong); border-radius: var(--radius); font-size: 12px; background: var(--surface); color: var(--text); font-family: monospace; }
+  .empty-state { text-align: center; padding: 40px 20px; color: var(--text-muted); font-size: 13px; font-family: monospace; }
+  .divider { height: 1px; background: var(--border); margin: 12px 0; }
+
+  /* Student detail panel */
+  .detail-panel { display:none; margin-bottom:12px; }
+  .detail-panel.open { display:block; }
+  .detail-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; }
+  .detail-name { font-size:15px; }
+  .detail-stats { font-family:monospace; font-size:12px; color:var(--text-muted); margin-top:2px; }
+  .detail-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:8px; }
+  .detail-session { border:1px solid var(--border); border-radius:var(--radius); padding:10px 12px; }
+  .detail-session.full { border-color:var(--green-border); background:var(--green-bg); }
+  .detail-session.partial { border-color:var(--amber-border); background:var(--amber-bg); }
+  .detail-session.absent { border-color:var(--red-border); background:var(--red-bg); }
+  .ds-head { display:flex; justify-content:space-between; align-items:baseline; margin-bottom:6px; }
+  .ds-day { font-family:monospace; font-size:11px; font-weight:500; }
+  .ds-day.full { color:var(--green); } .ds-day.partial { color:var(--amber); } .ds-day.absent { color:var(--red); }
+  .ds-date { font-family:monospace; font-size:10px; color:var(--text-faint); }
+  .ds-hours { display:flex; flex-direction:column; gap:3px; }
+  .ds-hour { display:flex; justify-content:space-between; font-size:11px; font-family:monospace; color:var(--text-muted); }
+  .ds-hour.present { color:var(--green); }
+  .name-link { cursor:pointer; text-decoration:underline; text-decoration-style:dotted; text-underline-offset:2px; }
+  .geo-info { font-size: 12px; color: var(--text-muted); font-family: monospace; margin-top: 8px; }
+
+  /* Sessions table */
+  .test-banner { display:none; background: var(--amber-bg); border: 1.5px dashed var(--amber-border); border-radius: var(--radius); padding: 10px 14px; margin-bottom: 12px; }
+  .test-banner.visible { display: flex; align-items: center; gap: 10px; }
+  .test-banner-text { flex: 1; font-family: monospace; font-size: 12px; color: var(--amber); line-height: 1.5; }
+  .test-banner-icon { font-size: 18px; flex-shrink: 0; }
+  .sess-table { width: 100%; border-collapse: collapse; }
+  .sess-table td { padding: 5px 4px; }
+  .sess-table td:first-child { font-family: monospace; font-size: 11px; color: var(--text-faint); width: 50px; }
+  .sess-table input[type=date] { width: 100%; }
+</style>
+</head>
+<body>
+
+<div id="profile-picker">
+  <div class="picker-card">
+    <h2>강사 선택</h2>
+    <p>이 컴퓨터에 등록된 강사 목록입니다</p>
+    <div class="profile-list" id="profile-list"></div>
+    <div class="picker-add" id="picker-add-form" style="display:none;">
+      <input type="text" id="new-profile-url" placeholder="Apps Script 웹앱 URL을 붙여넣으세요">
+      <button class="btn btn-primary btn-full" onclick="confirmAddProfile()">추가</button>
+    </div>
+    <button class="btn btn-full" id="picker-add-toggle" onclick="showAddProfileForm()">+ 새 강사 추가</button>
+  </div>
+</div>
+
+<div id="login-screen">
+  <div class="login-card">
+    <div class="login-icon"><svg viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></div>
+    <h2>Instructor Dashboard</h2>
+    <p id="login-profile-label">Enter your password to continue</p>
+    <input class="login-pw" type="password" id="pw-input" placeholder="••••••••" onkeydown="if(event.key==='Enter')doLogin()">
+    <div class="login-error" id="login-error">Incorrect password</div>
+    <button class="btn btn-primary btn-full" onclick="doLogin()">Sign in</button>
+    <p style="font-size:11px;color:var(--text-faint);margin-top:14px;font-family:monospace;">Default: <strong>teacher123</strong> · Change in Settings</p>
+    <button class="picker-back" id="picker-back-btn" onclick="showProfilePicker()" style="display:none;">← 다른 강사 선택</button>
+  </div>
+</div>
+
+<div id="app">
+  <header>
+    <div class="logo"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="8" height="8" rx="1"/><rect x="13" y="3" width="8" height="8" rx="1"/><rect x="3" y="13" width="8" height="8" rx="1"/><rect x="16" y="16" width="5" height="5" rx="0.5"/><rect x="13" y="13" width="2" height="2"/></svg></div>
+    <div class="header-titles">
+      <h1 id="hdr-title">Attendance Tracker</h1>
+      <p id="hdr-sub">Instructor Dashboard</p>
+    </div>
+    <span class="header-tag">Instructor</span>
+    <button class="btn btn-sm" id="test-mode-btn" onclick="toggleTestMode()" style="margin-left:4px;">🧪 Test</button>
+    <button class="btn btn-sm" onclick="logout()">🔀 강사 전환</button>
+  </header>
+
+  <div id="test-mode-banner" class="test-banner">
+    <span class="test-banner-icon">🧪</span>
+    <span class="test-banner-text"><strong>Testing mode ON</strong> — geofencing disabled. Attendees can check in from anywhere. Remember to turn this off before real class.</span>
+    <button class="btn btn-sm" onclick="toggleTestMode()" style="flex-shrink:0;">Turn off</button>
+  </div>
+
+  <div class="tab-bar">
+    <div class="tab active" onclick="switchTab('qr')">QR Codes</div>
+    <div class="tab" onclick="switchTab('records')">Records</div>
+    <div class="tab" onclick="switchTab('sessions')">Sessions</div>
+    <div class="tab" onclick="switchTab('settings')">Settings</div>
+  </div>
+
+  <!-- QR Tab -->
+  <div id="panel-qr" class="panel active">
+
+    <!-- Rename reminder banner — shown when pending renames exist -->
+    <div id="rename-reminder" style="display:none;background:var(--amber-bg);border:1.5px dashed var(--amber-border);border-radius:var(--radius);padding:10px 14px;margin-bottom:12px;">
+      <div style="font-size:13px;color:var(--amber);font-weight:500;margin-bottom:4px;">⚠️ 이름 수정 대기 중 — 학생이 다음 QR 스캔 시 자동 적용됩니다</div>
+      <div style="font-size:12px;color:var(--amber);font-family:monospace;" id="rename-reminder-detail"></div>
+    </div>
+
+    <div class="section-label">1. Select class day</div>
+    <div class="session-scroll" id="session-scroll"></div>
+
+    <div id="hour-section" style="display:none;">
+      <div class="section-label">2. Select hour — <span id="sel-session-label"></span></div>
+      <div class="hour-grid" id="hour-grid"></div>
+    </div>
+
+    <div id="qr-section" style="display:none;">
+      <div class="section-label">Active QR — <span id="qr-context-label"></span></div>
+      <div class="card">
+        <div class="qr-wrap">
+          <div id="qr-canvas-container"></div>
+          <div id="geo-badge" class="badge badge-green">Geofenced · 50m</div>
+          <div class="timer-bar"><div class="timer-fill" id="timer-fill" style="width:100%;"></div></div>
+          <div class="timer-label" id="timer-label">Refreshes in 60s</div>
+          <div id="qr-script-note" style="font-family:monospace;font-size:10px;color:var(--text-faint);margin-top:6px;text-align:center;"></div>
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-primary" onclick="generateQR(state.selectedSession,state.selectedHour)">↺ Refresh now</button>
+          <button class="btn" style="background:var(--blue-bg);color:var(--blue);border-color:var(--blue-border);" onclick="openDisplay()">📺 Display</button>
+          <button class="btn" onclick="document.getElementById('qr-section').style.display='none'">Close</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Records Tab -->
+  <div id="panel-records" class="panel">
+    <div class="stats-row" id="stats-row"></div>
+    <div class="filter-bar">
+      <label style="font-family:monospace;font-size:11px;color:var(--text-faint);">View:</label>
+      <select id="filter-session" onchange="renderRecords()">
+        <option value="all">All sessions</option>
+      </select>
+      <button class="btn btn-sm" onclick="renderRecords()">↺ Refresh</button>
+      <button class="btn btn-sm" style="color:var(--amber);border-color:var(--amber-border);" onclick="openManualPanel(0,'all',null)">✏️ 수동 출석</button>
+      <button class="btn btn-sm" onclick="exportCSV()">Export CSV</button>
+      <button class="btn btn-sm btn-danger" onclick="clearRecords()">Clear all</button>
+    </div>
+    <div id="records-status" style="font-family:monospace;font-size:11px;color:var(--text-faint);margin-bottom:8px;"></div>
+
+    <!-- Manual attendance panel -->
+    <div class="card" id="manual-att-card" style="display:none;margin-bottom:12px;border-color:var(--amber-border);background:var(--amber-bg);">
+      <div style="font-size:13px;font-weight:500;color:var(--amber);margin-bottom:10px;">✏️ 수동 출석 처리</div>
+
+      <!-- Copy from previous hour shortcut -->
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:10px 12px;margin-bottom:12px;">
+        <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px;">⚡ 이전 시간 출석자 복사</div>
+        <div class="row" style="flex-wrap:wrap;gap:6px;margin-bottom:8px;">
+          <div style="flex:1;min-width:120px;">
+            <div class="field-label">복사할 Day</div>
+            <select id="copy-session" style="width:100%;padding:5px 8px;border:1px solid var(--border-strong);border-radius:var(--radius);font-size:12px;font-family:monospace;background:var(--surface);"></select>
+          </div>
+          <div style="flex:1;min-width:100px;">
+            <div class="field-label">기준 Hour (출처)</div>
+            <select id="copy-from-hour" style="width:100%;padding:5px 8px;border:1px solid var(--border-strong);border-radius:var(--radius);font-size:12px;font-family:monospace;background:var(--surface);"></select>
+          </div>
+          <div style="flex:1;min-width:100px;">
+            <div class="field-label">복사 대상 Hour</div>
+            <select id="copy-to-hour" style="width:100%;padding:5px 8px;border:1px solid var(--border-strong);border-radius:var(--radius);font-size:12px;font-family:monospace;background:var(--surface);"></select>
+          </div>
+        </div>
+        <div style="font-size:11px;color:var(--text-muted);font-family:monospace;margin-bottom:8px;" id="copy-preview"></div>
+        <button class="btn btn-sm btn-primary" onclick="copyPrevHourAttendance()">⚡ 복사 실행</button>
+      </div>
+
+      <div style="border-top:1px solid var(--border);margin-bottom:12px;"></div>
+
+      <div class="row" style="margin-bottom:10px;flex-wrap:wrap;gap:8px;">
+        <div style="flex:1;min-width:140px;">
+          <div class="field-label">Day</div>
+          <select id="manual-session" style="width:100%;padding:6px 8px;border:1px solid var(--border-strong);border-radius:var(--radius);font-size:12px;font-family:monospace;background:var(--surface);">
+          </select>
+        </div>
+        <div style="flex:1;min-width:140px;">
+          <div class="field-label">Hour</div>
+          <select id="manual-hour" style="width:100%;padding:6px 8px;border:1px solid var(--border-strong);border-radius:var(--radius);font-size:12px;font-family:monospace;background:var(--surface);"></select>
+        </div>
+      </div>
+      <div style="font-size:12px;color:var(--amber);margin-bottom:8px;" id="manual-target-label"></div>
+      <div class="btn-row" style="justify-content:flex-start;">
+        <button class="btn btn-sm btn-primary" onclick="applyManualAttendance()">출석 처리</button>
+        <button class="btn btn-sm" onclick="closeManualPanel()">취소</button>
+      </div>
+    </div>
+
+    <div class="card" style="padding:0;overflow:auto;">
+      <div id="records-table-wrap"></div>
+    </div>
+
+    <!-- Student detail panel -->
+    <div class="card detail-panel" id="detail-panel">
+      <div class="detail-header">
+        <div>
+          <div class="detail-name" id="detail-name"></div>
+          <div class="detail-stats" id="detail-stats"></div>
+        </div>
+        <button class="btn btn-sm" onclick="closeDetailPanel()">닫기</button>
+      </div>
+      <div class="detail-grid" id="detail-grid"></div>
+    </div>
+  </div>
+
+  <!-- Sessions Tab -->
+  <div id="panel-sessions" class="panel">
+    <div class="section-label">Course info</div>
+    <div class="card">
+      <div class="field-group">
+        <div class="field-label">Course title</div>
+        <input type="text" id="course-title" placeholder="e.g. Introduction to Biology" oninput="saveCourseInfo()">
+      </div>
+      <div class="field-group">
+        <div class="field-label">Class / section number</div>
+        <input type="text" id="course-number" placeholder="e.g. BIO 101 — Section A" oninput="saveCourseInfo()">
+      </div>
+      <div class="field-group">
+        <div class="field-label">Instructor name</div>
+        <input type="text" id="teacher-name" placeholder="e.g. Prof. Jane Smith" oninput="saveCourseInfo()">
+      </div>
+    </div>
+
+    <div class="section-label" id="sessions-count-label">Class dates</div>
+    <div class="card">
+      <table class="sess-table" id="sess-table"></table>
+      <div class="btn-row" style="justify-content:flex-start;margin-top:10px;">
+        <button class="btn btn-sm" onclick="addSession()">+ Add day</button>
+        <button class="btn btn-sm btn-danger" onclick="removeLastSession()">− Remove last day</button>
+      </div>
+    </div>
+
+    <div class="section-label" id="hours-count-label">Hour times</div>
+    <div class="card">
+      <div id="hour-time-card"></div>
+      <div class="btn-row" style="justify-content:flex-start;margin-top:10px;">
+        <button class="btn btn-sm" onclick="addHour()">+ Add hour</button>
+        <button class="btn btn-sm btn-danger" onclick="removeLastHour()">− Remove last hour</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Settings Tab -->
+  <div id="panel-settings" class="panel">
+
+    <!-- System Status Dashboard -->
+    <div class="section-label">System status</div>
+    <div class="card" id="dashboard-card">
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:12px;">
+        <div class="stat"><div class="stat-num" id="dash-students">—</div><div class="stat-lbl">students</div></div>
+        <div class="stat"><div class="stat-num" id="dash-checkins">—</div><div class="stat-lbl">check-ins</div></div>
+        <div class="stat"><div class="stat-num" id="dash-last">—</div><div class="stat-lbl">last check-in</div></div>
+      </div>
+      <div style="font-size:11px;font-family:monospace;margin-bottom:10px;" id="dash-connection">
+        <span id="dash-conn-dot" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--text-faint);margin-right:6px;"></span>
+        <span id="dash-conn-label">연결 상태 확인 중…</span>
+      </div>
+      <div class="btn-row" style="justify-content:flex-start;flex-wrap:wrap;">
+        <button class="btn btn-sm" onclick="refreshDashboard()">↺ Refresh status</button>
+        <button class="btn btn-sm" id="sheet-link-btn" onclick="openGoogleSheet()" style="display:none;">📊 Open Google Sheet</button>
+      </div>
+    </div>
+
+    <div class="section-label">Google Sheets sync</div>
+    <div class="card">
+      <div class="settings-note" style="margin-bottom:10px;">Paste your Apps Script Web App URL here to sync attendance to Google Sheets automatically.</div>
+      <div class="field-group">
+        <div class="field-label">Apps Script Web App URL</div>
+        <input type="text" id="script-url" placeholder="https://script.google.com/macros/s/…/exec" style="width:100%;font-size:11px;" oninput="saveScriptURL()">
+      </div>
+      <div class="field-group">
+        <div class="field-label">Google Sheet URL (for direct access)</div>
+        <input type="text" id="sheet-url" placeholder="https://docs.google.com/spreadsheets/d/…" style="width:100%;font-size:11px;" oninput="saveSheetURL()">
+      </div>
+      <div class="field-group">
+        <div class="field-label">Secret Key (must match Apps Script) — 영문과 숫자만 사용</div>
+        <input type="text" id="secret-key" placeholder="e.g. MyClass2025" style="width:100%;font-family:monospace;" oninput="saveSecretKey()">
+        <div style="font-size:11px;color:var(--text-faint);font-family:monospace;margin-top:4px;">⚠️ 한글 사용 불가 — 영문, 숫자, 특수문자만 사용하세요</div>
+      </div>
+      <div id="script-url-msg" style="font-size:12px;font-family:monospace;margin-bottom:8px;display:none;"></div>
+      <div class="btn-row" style="justify-content:flex-start;margin-top:4px;flex-wrap:wrap;">
+        <button class="btn btn-sm" onclick="runDiagnostic()">🔍 Run diagnostic</button>
+        <button class="btn btn-sm btn-primary" onclick="saveSettingsToSheet()">☁️ Save all settings to Sheet</button>
+        <button class="btn btn-sm" onclick="loadSettingsFromSheet()">↺ Restore from Sheet</button>
+      </div>
+      <div id="diag-output" style="display:none;margin-top:12px;background:var(--surface2);border-radius:var(--radius);padding:12px;font-family:monospace;font-size:11px;line-height:1.8;"></div>
+      <div id="settings-sync-msg" style="font-size:12px;font-family:monospace;margin-top:8px;display:none;"></div>
+    </div>
+
+    <div class="section-label">Geofencing</div>
+    <div class="card">
+      <div class="row" style="margin-bottom:14px;">
+        <div><label>Enable geofencing</label><small>Block check-in from outside classroom</small></div>
+        <label class="toggle"><input type="checkbox" id="geo-toggle" checked onchange="onGeoToggle()"><span class="toggle-slider"></span></label>
+      </div>
+      <div id="radius-row" class="row" style="margin-bottom:10px;">
+        <label style="flex:0 0 auto;font-size:13px;">Radius (meters)</label>
+        <input type="number" id="geo-radius" value="50" min="10" max="1000" style="width:90px;">
+      </div>
+      <div class="geo-info" id="teacher-geo-info">Classroom GPS: not yet captured</div>
+      <div class="btn-row" style="justify-content:flex-start;margin-top:10px;">
+        <button class="btn btn-sm" onclick="captureClassroomGPS()">📍 Set classroom GPS</button>
+        <button class="btn btn-sm btn-danger" onclick="resetClassroomGPS()">🗑 Reset GPS</button>
+      </div>
+      <div style="margin-top:12px;">
+        <div class="field-label" style="margin-bottom:4px;">Or enter coordinates manually</div>
+        <div class="row" style="gap:6px;">
+          <input type="text" id="manual-lat" placeholder="Latitude (e.g. 37.56345)" style="flex:1;font-size:12px;">
+          <input type="text" id="manual-lng" placeholder="Longitude (e.g. 126.97729)" style="flex:1;font-size:12px;">
+          <button class="btn btn-sm" onclick="saveManualGPS()">Save</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="section-label">Change password</div>
+    <div class="card">
+      <div class="field-group"><div class="field-label">New password</div><input type="password" id="new-pw" style="width:100%;"></div>
+      <div class="field-group"><div class="field-label">Confirm password</div><input type="password" id="confirm-pw" style="width:100%;"></div>
+      <div id="pw-msg" style="font-size:12px;font-family:monospace;margin-bottom:8px;display:none;"></div>
+      <button class="btn btn-sm btn-primary" onclick="changePassword()">Save password</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const DEFAULT_SESSIONS = Array.from({length:8},(_,i)=>({label:`Day ${i+1}`,date:''}));
+const DEFAULT_HOURS = [
+  {label:'Hour 1',time:'9:00–10:00 AM'},{label:'Hour 2',time:'10:00–11:00 AM'},
+  {label:'Hour 3',time:'11:00–12:00 PM'},{label:'Hour 4',time:'12:00–1:00 PM'},
+];
+
+const state = {
+  selectedSession:null, selectedHour:null,
+  geoEnabled:true, geoRadius:50,
+  classroomLat:null, classroomLng:null,
+  tokenExpiry:null, timerInterval:null, qrObj:null,
+  sessions:null, hours:null, attendance:null,
+  courseTitle:'', courseNumber:'', teacherName:'',
+};
+
+function ld(k,d){try{const v=localStorage.getItem(k);return v!==null?JSON.parse(v):d;}catch{return d;}}
+function sv(k,v){localStorage.setItem(k,JSON.stringify(v));}
+
+// ── Multi-instructor profiles (shared desktop support) ────────────────────────
+// Everything below keeps each instructor's course/session/sheet data fully
+// separate on a shared computer, while every OTHER function in this file keeps
+// reading/writing the same plain keys (att_pw, att_sessions, ...) as before —
+// those plain keys are just "the currently active profile's working copy",
+// auto-mirrored into that profile's own bundle on every write.
+const PROFILE_KEYS = ['att_pw','att_secret_key','att_sheet_url','att_test_mode',
+  'classroom_lat','classroom_lng','att_course','att_course_pub','att_hours',
+  'att_records','att_renames','att_renames_applied','att_sessions','att_token'];
+
+const _rawSetItem = Storage.prototype.setItem.bind(localStorage);
+const _rawGetItem = Storage.prototype.getItem.bind(localStorage);
+const _rawRemoveItem = Storage.prototype.removeItem.bind(localStorage);
+
+// Auto-mirror every write to a PROFILE_KEY into the active profile's bundle,
+// so switching profiles never loses data and nothing needs to change at each
+// of the many call sites elsewhere in this file that already call setItem/sv.
+localStorage.setItem = function(key, value){
+  _rawSetItem(key, value);
+  if(PROFILE_KEYS.includes(key)){
+    const url = _rawGetItem('att_script_url');
+    if(url){
+      let all; try{ all = JSON.parse(_rawGetItem('att_profile_data')||'{}'); }catch{ all={}; }
+      if(!all[url]) all[url]={};
+      all[url][key]=value;
+      _rawSetItem('att_profile_data', JSON.stringify(all));
+    }
+  }
+};
+
+function getProfiles(){ return ld('att_profiles',{}); } // {scriptUrl: {nickname, courseTitle, teacherName}}
+function saveProfileMeta(url, patch){
+  const all=getProfiles();
+  all[url]=Object.assign({nickname:'',courseTitle:'',teacherName:''}, all[url]||{}, patch);
+  sv('att_profiles',all);
+}
+function updateProfileMetaFromState(){
+  const url=_rawGetItem('att_script_url');
+  if(!url)return;
+  saveProfileMeta(url,{courseTitle:state.courseTitle||'',teacherName:state.teacherName||''});
+  if(document.getElementById('profile-picker'))renderProfileList();
+}
+
+// Loads a profile's saved bundle into the live keys this app actually reads from.
+function loadProfileIntoStorage(url){
+  let all; try{ all=JSON.parse(_rawGetItem('att_profile_data')||'{}'); }catch{ all={}; }
+  const bundle=all[url]||{};
+  PROFILE_KEYS.forEach(k=>{
+    if(bundle[k]!==undefined) _rawSetItem(k,bundle[k]); else _rawRemoveItem(k);
+  });
+  _rawSetItem('att_script_url',url);
+}
+
+function registerProfile(url){
+  url=url.trim();
+  if(!url)return;
+  const all=getProfiles();
+  if(!all[url]) saveProfileMeta(url,{});
+}
+
+function escapeHtml(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+
+function renderProfileList(){
+  const wrap=document.getElementById('profile-list');
+  if(!wrap)return;
+  const profiles=getProfiles();
+  const urls=Object.keys(profiles);
+  if(urls.length===0){
+    wrap.innerHTML='<div class="profile-empty">등록된 강사가 아직 없습니다.<br>아래에서 첫 강사를 추가하세요.</div>';
+    return;
+  }
+  wrap.innerHTML=urls.map(url=>{
+    const p=profiles[url];
+    const nick=escapeHtml(p.nickname||p.courseTitle||'(이름 미설정)');
+    const sub=escapeHtml([p.courseTitle,p.teacherName].filter(Boolean).join(' · ')||url.slice(0,40)+'…');
+    return `<div class="profile-row" data-url="${escapeHtml(url)}">
+      <div class="profile-main">
+        <div class="profile-nick">${nick}</div>
+        <div class="profile-sub">${sub}</div>
+      </div>
+      <button class="profile-edit" data-action="edit" title="별칭 수정">✏️</button>
+      <button class="profile-edit" data-action="delete" title="삭제">🗑️</button>
+    </div>`;
+  }).join('');
+}
+
+// Event delegation — safe regardless of what characters end up in a script URL
+document.addEventListener('click', function(e){
+  const row=e.target.closest?.('.profile-row');
+  if(!row||!document.getElementById('profile-list')?.contains(row))return;
+  const url=row.dataset.url;
+  const action=e.target.closest('[data-action]')?.dataset.action;
+  if(action==='edit'){ e.stopPropagation(); editProfileNickname(url); }
+  else if(action==='delete'){ e.stopPropagation(); deleteProfile(url); }
+  else { pickProfile(url); }
+});
+
+function editProfileNickname(url){
+  const profiles=getProfiles();
+  const current=profiles[url]?.nickname||'';
+  const next=prompt('이 강사를 목록에서 어떻게 표시할까요? (예: 화요일 오전반)',current);
+  if(next===null)return;
+  saveProfileMeta(url,{nickname:next.trim()});
+  renderProfileList();
+}
+
+function deleteProfile(url){
+  const profiles=getProfiles();
+  const label=profiles[url]?.nickname||profiles[url]?.courseTitle||'이 강사';
+  if(!confirm(`"${label}" 정보를 이 컴퓨터에서 삭제할까요?\n(구글 시트의 데이터는 삭제되지 않습니다.)`))return;
+  delete profiles[url];
+  sv('att_profiles',profiles);
+  let all; try{ all=JSON.parse(_rawGetItem('att_profile_data')||'{}'); }catch{ all={}; }
+  delete all[url];
+  _rawSetItem('att_profile_data',JSON.stringify(all));
+  renderProfileList();
+}
+
+function showAddProfileForm(){
+  document.getElementById('picker-add-form').style.display='block';
+  document.getElementById('picker-add-toggle').style.display='none';
+  document.getElementById('new-profile-url').focus();
+}
+
+function confirmAddProfile(){
+  const url=document.getElementById('new-profile-url').value.trim();
+  if(!url){alert('Apps Script 웹앱 URL을 입력해 주세요.');return;}
+  registerProfile(url);
+  pickProfile(url);
+}
+
+function pickProfile(url){
+  loadProfileIntoStorage(url);
+  const profiles=getProfiles();
+  const p=profiles[url]||{};
+  const label=[p.nickname,[p.courseTitle,p.teacherName].filter(Boolean).join(' · ')].filter(Boolean).join(' — ');
+  document.getElementById('login-profile-label').textContent=label||'Enter your password to continue';
+  document.getElementById('picker-back-btn').style.display='block';
+  document.getElementById('profile-picker').style.display='none';
+  document.getElementById('login-screen').style.display='flex';
+  document.getElementById('pw-input').value='';
+  document.getElementById('login-error').style.display='none';
+  document.getElementById('pw-input').focus();
+}
+
+function showProfilePicker(){
+  document.getElementById('login-screen').style.display='none';
+  document.getElementById('app').style.display='none';
+  document.getElementById('picker-add-form').style.display='none';
+  document.getElementById('picker-add-toggle').style.display='block';
+  document.getElementById('new-profile-url').value='';
+  renderProfileList();
+  document.getElementById('profile-picker').style.display='flex';
+}
+
+// ── Auth ──────────────────────────────────────────────────────────────────────
+function getPassword(){return localStorage.getItem('att_pw')||'teacher123';}
+function doLogin(){
+  if(document.getElementById('pw-input').value===getPassword()){
+    document.getElementById('login-screen').style.display='none';
+    document.getElementById('app').style.display='block';
+    initApp();
+  }else{
+    document.getElementById('login-error').style.display='block';
+    document.getElementById('pw-input').value='';
+  }
+}
+function logout(){
+  document.getElementById('app').style.display='none';
+  showProfilePicker();
+}
+function changePassword(){
+  const np=document.getElementById('new-pw').value;
+  const cp=document.getElementById('confirm-pw').value;
+  const msg=document.getElementById('pw-msg');
+  msg.style.display='block';
+  if(!np){msg.style.color='var(--red)';msg.textContent='Cannot be empty.';return;}
+  if(np!==cp){msg.style.color='var(--red)';msg.textContent='Passwords do not match.';return;}
+  localStorage.setItem('att_pw',np);
+  msg.style.color='var(--green)';msg.textContent='Password saved.';
+  document.getElementById('new-pw').value='';document.getElementById('confirm-pw').value='';
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+function initApp(){
+  const course=ld('att_course',{});
+  state.courseTitle=course.title||''; state.courseNumber=course.number||''; state.teacherName=course.teacher||'';
+  state.sessions=ld('att_sessions',DEFAULT_SESSIONS);
+  state.hours=ld('att_hours',DEFAULT_HOURS);
+  state.attendance=ld('att_records',{});
+  const lat=parseFloat(localStorage.getItem('classroom_lat'));
+  const lng=parseFloat(localStorage.getItem('classroom_lng'));
+  if(!isNaN(lat)&&!isNaN(lng)){
+    state.classroomLat=lat;state.classroomLng=lng;
+    document.getElementById('teacher-geo-info').textContent=`GPS: ${lat.toFixed(5)}, ${lng.toFixed(5)} (saved)`;
+  }
+  document.getElementById('course-title').value=state.courseTitle;
+  document.getElementById('course-number').value=state.courseNumber;
+  document.getElementById('teacher-name').value=state.teacherName;
+  document.getElementById('script-url').value=localStorage.getItem('att_script_url')||'';
+  document.getElementById('secret-key').value=getSecretKey();
+  const sheetUrl=localStorage.getItem('att_sheet_url')||'';
+  document.getElementById('sheet-url').value=sheetUrl;
+  const sheetBtn=document.getElementById('sheet-link-btn');
+  if(sheetBtn)sheetBtn.style.display=sheetUrl?'inline-flex':'none';
+  document.getElementById('geo-radius').addEventListener('input',updateGeoBadge);
+  updateHeader(); renderSessionChips(); renderSessionsTable(); renderHourTimeInputs();
+  buildHourOptionSelects();
+  applyTestMode();
+
+  // Load renames from Google Sheet on startup (survives browser cache clears)
+  loadRenamesFromSheet();
+  startRenamesPoll();
+  updateProfileMetaFromState();
+}
+
+function saveCourseInfo(){
+  state.courseTitle=document.getElementById('course-title').value;
+  state.courseNumber=document.getElementById('course-number').value;
+  state.teacherName=document.getElementById('teacher-name').value;
+  sv('att_course',{title:state.courseTitle,number:state.courseNumber,teacher:state.teacherName});
+  updateHeader();
+  updateProfileMetaFromState();
+}
+function updateHeader(){
+  document.getElementById('hdr-title').textContent=state.courseTitle||'Attendance Tracker';
+  const sub=[state.courseNumber,state.teacherName].filter(Boolean).join(' · ');
+  document.getElementById('hdr-sub').textContent=sub?sub+' · Instructor':'Instructor Dashboard';
+  sv('att_course_pub',{title:state.courseTitle,number:state.courseNumber,teacher:state.teacherName});
+}
+
+// ── Session chips ─────────────────────────────────────────────────────────────
+function todayStr(){const d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;}
+function fmtDate(iso){if(!iso)return 'No date';const[y,m,d]=iso.split('-');return new Date(y,m-1,d).toLocaleDateString(undefined,{month:'short',day:'numeric'});}
+function countSessAtt(si){return Object.values(state.attendance).filter(r=>r[si]&&Object.keys(r[si]).length>0).length;}
+
+function renderSessionChips(){
+  const today=todayStr();
+  document.getElementById('session-scroll').innerHTML=state.sessions.map((s,i)=>{
+    const isToday=s.date===today;
+    return `<div class="session-chip${state.selectedSession===i?' active':''}${isToday?' today':''}" onclick="selectSession(${i})">
+      <div class="sc-num">DAY ${i+1}</div>
+      <div class="sc-date">${s.date?fmtDate(s.date):'—'}</div>
+      <div class="sc-count">${countSessAtt(i)} present</div>
+    </div>`;
+  }).join('');
+}
+
+function selectSession(i){
+  state.selectedSession=i; state.selectedHour=null;
+  document.getElementById('qr-section').style.display='none';
+  renderSessionChips(); renderHourGrid();
+  document.getElementById('hour-section').style.display='block';
+  const s=state.sessions[i];
+  document.getElementById('sel-session-label').textContent=`Day ${i+1}${s.date?' · '+fmtDate(s.date):''}`;
+}
+// ── Hour grid ─────────────────────────────────────────────────────────────────
+function renderHourGrid(){
+  const si=state.selectedSession;
+  document.getElementById('hour-grid').innerHTML=state.hours.map((h,i)=>{
+    const count=Object.values(state.attendance).filter(r=>r[si]&&r[si][i]).length;
+    return `<div class="hour-card${state.selectedHour===i?' active':''}" onclick="selectHour(${i})">
+      <div class="h-num">HOUR ${i+1}</div>
+      <div class="h-time">${h.time}</div>
+      <div class="h-count">${count} present</div>
+    </div>`;
+  }).join('');
+}
+function selectHour(i){
+  state.selectedHour=i;
+  renderHourGrid();
+  const s=state.sessions[state.selectedSession];
+  document.getElementById('qr-context-label').textContent=`Day ${state.selectedSession+1}${s.date?' · '+fmtDate(s.date):''} · Hour ${i+1}`;
+  document.getElementById('qr-section').style.display='block';
+  generateQR(state.selectedSession,i);
+}
+
+// ── QR ────────────────────────────────────────────────────────────────────────
+function getStudentBase(){return window.location.href.replace('instructor.html','attendee.html').split('?')[0];}
+
+function makeTokenPayload(si,hi){
+  const testMode=isTestMode();
+  return {
+    session:si, hour:hi,
+    geo: testMode ? false : state.geoEnabled,
+    lat:state.classroomLat, lng:state.classroomLng, radius:state.geoRadius,
+    ts:Date.now(), nonce:Math.random().toString(36).slice(2,10),
+    courseTitle:state.courseTitle, courseNumber:state.courseNumber, teacherName:state.teacherName,
+    sessionDate:state.sessions[si]?.date||'',
+    testMode,
+    scriptUrl:localStorage.getItem('att_script_url')||'',
+    secretKey:getSecretKey(),
+    renames:ld('att_renames',{}), // pending name corrections for students
+    // Day/hour config (date & time only — 'label' isn't used on the student side)
+    // lets student devices sync their "My attendance" view to match the real schedule.
+    sessions:state.sessions.map(s=>({date:s.date||''})),
+    hours:state.hours.map(h=>({time:h.time||''})),
+  };
+}
+
+function makeQRText(si,hi){
+  // Encode as a URL so scanning opens attendee.html and auto-checks in — one scan only
+  const payload=btoa(unescape(encodeURIComponent(JSON.stringify(makeTokenPayload(si,hi)))));
+  return getStudentBase()+'?t='+payload;
+}
+function generateQR(si,hi){
+  const payload=makeTokenPayload(si,hi);
+  const rawToken=JSON.stringify(payload);
+  state.tokenExpiry=Date.now()+60000;
+  sv('att_token',{token:rawToken,expiry:state.tokenExpiry});
+
+  // Show whether script URL is embedded
+  const note=document.getElementById('qr-script-note');
+  if(note){
+    if(payload.scriptUrl){
+      note.textContent='✓ Sheet URL embedded in QR';
+      note.style.color='var(--green)';
+    } else {
+      note.textContent='⚠ No sheet URL — go to Settings → Google Sheets sync first';
+      note.style.color='var(--amber)';
+    }
+  }
+
+  // Fully destroy old QR before creating new one — qrcodejs clear() is unreliable
+  if(state.qrObj){try{state.qrObj.clear();}catch(e){}}
+  state.qrObj=null;
+  const c=document.getElementById('qr-canvas-container');
+  c.innerHTML='';
+
+  const qrText=makeQRText(si,hi);
+  setTimeout(()=>{
+    state.qrObj=new QRCode(c,{text:qrText,width:220,height:220,colorDark:'#1a1917',colorLight:'#fff',correctLevel:QRCode.CorrectLevel.M});
+  },50);
+
+  updateGeoBadge();
+  startTimer();
+  updateRenameBanner();
+}
+function startTimer(){
+  if(state.timerInterval)clearInterval(state.timerInterval);
+  state.timerInterval=setInterval(()=>{
+    const rem=Math.max(0,state.tokenExpiry-Date.now());
+    document.getElementById('timer-fill').style.width=(rem/60000*100)+'%';
+    document.getElementById('timer-label').textContent=rem>0?`Refreshes in ${Math.ceil(rem/1000)}s`:'Refreshing…';
+    if(rem<=2000&&state.selectedSession!==null&&state.selectedHour!==null)generateQR(state.selectedSession,state.selectedHour);
+  },1000);
+}
+
+// ── Display window ────────────────────────────────────────────────────────────
+function openDisplay(){
+  window.open('screen.html','att_display','width=1024,height=768');
+}
+
+// ── Testing mode ──────────────────────────────────────────────────────────────
+function isTestMode(){return localStorage.getItem('att_test_mode')==='1';}
+function toggleTestMode(){
+  const on=!isTestMode();
+  localStorage.setItem('att_test_mode', on?'1':'0');
+  applyTestMode();
+  // Regenerate active QR so the new geo setting takes effect immediately
+  if(state.selectedSession!==null&&state.selectedHour!==null)
+    generateQR(state.selectedSession,state.selectedHour);
+}
+function applyTestMode(){
+  const on=isTestMode();
+  document.getElementById('test-mode-banner').classList.toggle('visible',on);
+  const btn=document.getElementById('test-mode-btn');
+  btn.textContent=on?'🧪 Testing ON':'🧪 Test';
+  btn.style.background=on?'var(--amber-bg)':'';
+  btn.style.borderColor=on?'var(--amber-border)':'';
+  btn.style.color=on?'var(--amber)':'';
+}
+
+// ── Google Sheets URL ─────────────────────────────────────────────────────────
+function saveScriptURL(){
+  const url=document.getElementById('script-url').value.trim();
+  if(!url)return;
+  // Changing the script URL here means "switch to this instructor's backend" —
+  // route it through the same profile machinery the picker uses, so this
+  // never accidentally mixes this profile's data into a different one's bundle.
+  registerProfile(url);
+  loadProfileIntoStorage(url);
+  state.sessions=ld('att_sessions',DEFAULT_SESSIONS);
+  state.hours=ld('att_hours',DEFAULT_HOURS);
+  state.attendance=ld('att_records',{});
+  const course=ld('att_course',{});
+  state.courseTitle=course.title||''; state.courseNumber=course.number||''; state.teacherName=course.teacher||'';
+  document.getElementById('course-title').value=state.courseTitle;
+  document.getElementById('course-number').value=state.courseNumber;
+  document.getElementById('teacher-name').value=state.teacherName;
+  document.getElementById('secret-key').value=getSecretKey();
+  const sheetUrl=localStorage.getItem('att_sheet_url')||'';
+  document.getElementById('sheet-url').value=sheetUrl;
+  const sheetBtn=document.getElementById('sheet-link-btn');
+  if(sheetBtn)sheetBtn.style.display=sheetUrl?'inline-flex':'none';
+  renderSessionsTable(); renderSessionChips(); renderHourTimeInputs(); buildHourOptionSelects();
+  updateHeader();
+  updateProfileMetaFromState();
+  const msg=document.getElementById('script-url-msg');
+  msg.style.display='block';
+  msg.style.color='var(--text-muted)';
+  msg.textContent='URL saved.';
+}
+
+function saveSheetURL(){
+  const url=document.getElementById('sheet-url').value.trim();
+  localStorage.setItem('att_sheet_url',url);
+  const btn=document.getElementById('sheet-link-btn');
+  if(btn)btn.style.display=url?'inline-flex':'none';
+}
+
+function openGoogleSheet(){
+  const url=localStorage.getItem('att_sheet_url')||'';
+  if(url)window.open(url,'_blank');
+}
+
+// ── System status dashboard — defined after jsonpFetch below ─────────────────
+
+// Refresh dashboard when switching to Settings tab
+const TABS=['qr','records','sessions','settings'];
+function switchTab(tab){
+  TABS.forEach((t,i)=>{
+    document.querySelectorAll('.tab')[i].classList.toggle('active',t===tab);
+    document.getElementById('panel-'+t).classList.toggle('active',t===tab);
+  });
+  if(tab==='records')renderRecords();
+  if(tab==='qr')updateRenameBanner();
+  if(tab==='settings')setTimeout(function(){if(typeof refreshDashboard==='function')refreshDashboard();},100);
+}
+
+function saveSecretKey(){
+  const key=document.getElementById('secret-key').value.trim();
+  localStorage.setItem('att_secret_key',key);
+}
+
+function getSecretKey(){return localStorage.getItem('att_secret_key')||'';}
+
+// Attach secret key to every JSONP request
+function buildURL(baseUrl,params){
+  const key=getSecretKey();
+  if(key) params.key=key;
+  return baseUrl+'?'+new URLSearchParams(params).toString();
+}
+
+// ── Page-load routing (profile picker ⇄ password ⇄ app) ──────────────────────
+// Opening instructor.html?s=SCRIPT_URL registers/selects that instructor's
+// profile directly (skip the picker — the person deliberately used their own
+// link). A plain open always starts from the picker, so one shared desktop
+// never silently stays logged into whichever instructor used it last.
+(function routeOnLoad(){
+  const params=new URLSearchParams(window.location.search);
+  const s=params.get('s');
+  window.history.replaceState({},'',window.location.pathname);
+  if(s){
+    registerProfile(s);
+    pickProfile(s);
+  }else{
+    showProfilePicker();
+  }
+})();
+
+// ── Settings sync ─────────────────────────────────────────────────────────────
+function showSettingsMsg(msg,color){
+  const el=document.getElementById('settings-sync-msg');
+  if(!el)return;
+  el.style.display='block';el.style.color=color||'var(--text-muted)';el.textContent=msg;
+}
+
+function saveSettingsToSheet(){
+  const url=localStorage.getItem('att_script_url')||'';
+  if(!url){showSettingsMsg('Script URL이 없습니다. 먼저 URL을 입력하세요.','var(--red)');return;}
+  showSettingsMsg('저장 중…');
+  const params={
+    action:'save_settings',
+    courseTitle:state.courseTitle||'',
+    courseNumber:state.courseNumber||'',
+    teacherName:state.teacherName||'',
+    scriptUrl:url,
+    sheetUrl:localStorage.getItem('att_sheet_url')||'',
+    secretKey:getSecretKey(),
+    classroomLat:state.classroomLat||'',
+    classroomLng:state.classroomLng||'',
+    geoRadius:document.getElementById('geo-radius').value||'50',
+    geoEnabled:document.getElementById('geo-toggle').checked?'true':'false',
+    sessions:JSON.stringify(state.sessions),
+    hours:JSON.stringify(state.hours),
+    password:getPassword(),
+  };
+  const cbName='_ss'+Date.now();
+  const script=document.createElement('script');
+  const timer=setTimeout(()=>{delete window[cbName];script.remove();showSettingsMsg('시간 초과','var(--red)');},15000);
+  window[cbName]=function(data){
+    clearTimeout(timer);delete window[cbName];script.remove();
+    if(data&&data.status==='ok')showSettingsMsg('✓ 구글 시트에 저장 완료','var(--green)');
+    else showSettingsMsg('오류: '+(data&&data.message||'알 수 없음'),'var(--red)');
+  };
+  script.src=buildURL(url,params)+'&callback='+cbName;
+  document.head.appendChild(script);
+}
+
+function loadSettingsFromSheet(){
+  const url=localStorage.getItem('att_script_url')||'';
+  if(!url){showSettingsMsg('Script URL이 없습니다.','var(--red)');return;}
+  showSettingsMsg('불러오는 중…');
+  const cbName='_ls'+Date.now();
+  const script=document.createElement('script');
+  const timer=setTimeout(()=>{delete window[cbName];script.remove();showSettingsMsg('시간 초과','var(--red)');},15000);
+  window[cbName]=function(data){
+    clearTimeout(timer);delete window[cbName];script.remove();
+    if(!data||data.status!=='ok'){showSettingsMsg('오류: '+(data&&data.message||'알 수 없음'),'var(--red)');return;}
+    const s=data.settings||{};
+    if(s.courseTitle){state.courseTitle=s.courseTitle;document.getElementById('course-title').value=s.courseTitle;}
+    if(s.courseNumber){state.courseNumber=s.courseNumber;document.getElementById('course-number').value=s.courseNumber;}
+    if(s.teacherName){state.teacherName=s.teacherName;document.getElementById('teacher-name').value=s.teacherName;}
+    if(s.secretKey){localStorage.setItem('att_secret_key',s.secretKey);document.getElementById('secret-key').value=s.secretKey;}
+    if(s.sheetUrl){
+      localStorage.setItem('att_sheet_url',s.sheetUrl);
+      document.getElementById('sheet-url').value=s.sheetUrl;
+      const btn=document.getElementById('sheet-link-btn');
+      if(btn)btn.style.display=s.sheetUrl?'inline-flex':'none';
+    }
+    if(s.classroomLat&&s.classroomLng){
+      state.classroomLat=parseFloat(s.classroomLat);
+      state.classroomLng=parseFloat(s.classroomLng);
+      localStorage.setItem('classroom_lat',s.classroomLat);
+      localStorage.setItem('classroom_lng',s.classroomLng);
+      document.getElementById('teacher-geo-info').textContent=
+        `GPS: ${parseFloat(s.classroomLat).toFixed(5)}, ${parseFloat(s.classroomLng).toFixed(5)} ✓ Restored`;
+    }
+    if(s.geoRadius){document.getElementById('geo-radius').value=s.geoRadius;}
+    if(s.geoEnabled){
+      const enabled=s.geoEnabled==='true';
+      document.getElementById('geo-toggle').checked=enabled;
+      document.getElementById('radius-row').style.display=enabled?'flex':'none';
+    }
+    if(s.sessions){try{state.sessions=JSON.parse(s.sessions);sv('att_sessions',state.sessions);renderSessionsTable();renderSessionChips();buildFilterOptions();buildManualSessionOptions();}catch(e){}}
+    if(s.hours){try{state.hours=JSON.parse(s.hours);sv('att_hours',state.hours);renderHourTimeInputs();buildHourOptionSelects();}catch(e){}}
+    if(s.password){localStorage.setItem('att_pw',s.password);}
+    updateHeader();
+    updateProfileMetaFromState();
+    showSettingsMsg('✓ 시트에서 설정 복구 완료','var(--green)');
+  };
+  script.src=buildURL(url,{action:'get_settings'})+'&callback='+cbName;
+  document.head.appendChild(script);
+}
+
+function diagLog(lines, line, color){
+  lines.push(`<span style="color:${color||'inherit'}">${line}</span>`);
+  document.getElementById('diag-output').innerHTML=lines.join('<br>');
+}
+
+function runDiagnostic(){
+  const out=document.getElementById('diag-output');
+  out.style.display='block';
+  out.innerHTML='Running…';
+  const lines=[];
+  const url=(localStorage.getItem('att_script_url')||'').trim();
+
+  // Step 1: URL present?
+  if(!url){
+    diagLog(lines,'❌ No URL saved. Paste your Apps Script URL above and save.','var(--red)');return;
+  }
+  diagLog(lines,'✓ URL found','var(--green)');
+
+  // Step 2: URL format
+  if(!url.startsWith('https://script.google.com/macros/s/')){
+    diagLog(lines,'❌ URL does not look like an Apps Script URL. It should start with https://script.google.com/macros/s/','var(--red)');return;
+  }
+  if(!url.endsWith('/exec')){
+    diagLog(lines,'❌ URL should end with /exec — check you copied the full deployment URL','var(--red)');return;
+  }
+  diagLog(lines,'✓ URL format looks correct','var(--green)');
+
+  // Step 3: JSONP reachability test
+  diagLog(lines,'… Contacting Apps Script via JSONP (may take 5–10s)');
+  const cbName='_diag'+Date.now();
+  const script=document.createElement('script');
+  const timer=setTimeout(()=>{
+    delete window[cbName]; script.remove();
+    diagLog(lines,'❌ Timed out — Apps Script did not respond within 10 seconds.','var(--red)');
+    diagLog(lines,'   Possible causes:','var(--amber)');
+    diagLog(lines,'   • Script not deployed yet, or deployed as old version','var(--amber)');
+    diagLog(lines,'   • "Who has access" not set to Anyone','var(--amber)');
+    diagLog(lines,'   • Wrong URL pasted','var(--amber)');
+    diagLog(lines,'   Fix: Deploy → Manage deployments → Edit → New version → Deploy','var(--amber)');
+  },10000);
+
+  window[cbName]=function(data){
+    clearTimeout(timer); delete window[cbName]; script.remove();
+    diagLog(lines,'✓ Apps Script responded','var(--green)');
+
+    // Step 4: response shape
+    if(!data||typeof data!=='object'){
+      diagLog(lines,'❌ Response was not valid JSON — script may have an error','var(--red)');return;
+    }
+    diagLog(lines,'✓ Response is valid JSON','var(--green)');
+
+    if(data.status!=='ok'){
+      diagLog(lines,'❌ Script returned error: '+(data.message||JSON.stringify(data)),'var(--red)');return;
+    }
+    diagLog(lines,'✓ Status: ok','var(--green)');
+
+    // Step 5: records present?
+    const rec=data.records||{};
+    const students=Object.keys(rec);
+    if(students.length===0){
+      diagLog(lines,'⚠ No records found in sheet — is the Attendance Log sheet empty?','var(--amber)');
+      diagLog(lines,'  If students have checked in, make sure the sheet name is exactly: Attendance Log','var(--amber)');
+    } else {
+      diagLog(lines,`✓ Found ${students.length} student(s) in sheet`,'var(--green)');
+      diagLog(lines,'✓ Everything looks good! Switching to Records tab…','var(--green)');
+      setTimeout(()=>switchTab('records'),1500);
+    }
+  };
+
+  script.onerror=function(){
+    clearTimeout(timer); delete window[cbName]; script.remove();
+    diagLog(lines,'❌ Script tag failed to load — network error or URL is wrong','var(--red)');
+  };
+  script.src=buildURL(url,{action:'get_records'})+'&callback='+cbName;
+  document.head.appendChild(script);
+}
+
+// ── Geo ───────────────────────────────────────────────────────────────────────
+function onGeoToggle(){state.geoEnabled=document.getElementById('geo-toggle').checked;document.getElementById('radius-row').style.display=state.geoEnabled?'flex':'none';updateGeoBadge();}
+function updateGeoBadge(){
+  state.geoRadius=parseInt(document.getElementById('geo-radius').value)||50;
+  const b=document.getElementById('geo-badge');if(!b)return;
+  if(state.geoEnabled){b.className='badge badge-green';b.textContent=`Geofenced · ${state.geoRadius}m`;}
+  else{b.className='badge badge-red';b.textContent='No geofencing';}
+}
+function captureClassroomGPS(){
+  const el=document.getElementById('teacher-geo-info');
+  el.textContent='Getting location…';
+  if(!navigator.geolocation){el.textContent='Not supported by this browser.';return;}
+
+  function savePos(pos){
+    state.classroomLat=pos.coords.latitude;
+    state.classroomLng=pos.coords.longitude;
+    el.textContent=`GPS: ${state.classroomLat.toFixed(5)}, ${state.classroomLng.toFixed(5)} (±${Math.round(pos.coords.accuracy)}m) ✓ Saved`;
+    localStorage.setItem('classroom_lat',state.classroomLat);
+    localStorage.setItem('classroom_lng',state.classroomLng);
+  }
+  function onError(err){
+    // High accuracy failed — try again with low accuracy (works better indoors/PC)
+    el.textContent='High accuracy failed, trying network location…';
+    navigator.geolocation.getCurrentPosition(
+      savePos,
+      ()=>{ el.textContent='Error: '+err.message+'. Try allowing location in browser settings.'; },
+      { enableHighAccuracy:false, timeout:10000 }
+    );
+  }
+
+  navigator.geolocation.getCurrentPosition(savePos, onError,
+    { enableHighAccuracy:true, timeout:8000, maximumAge:0 }
+  );
+}
+
+function resetClassroomGPS(){
+  if(!confirm('저장된 교실 GPS 위치를 삭제할까요?\n삭제 후에는 새 위치에서 다시 설정해야 합니다.'))return;
+  state.classroomLat=null;state.classroomLng=null;
+  localStorage.removeItem('classroom_lat');localStorage.removeItem('classroom_lng');
+  document.getElementById('teacher-geo-info').textContent='Classroom GPS: not yet captured';
+  document.getElementById('manual-lat').value='';
+  document.getElementById('manual-lng').value='';
+}
+
+function saveManualGPS(){
+  const lat=parseFloat(document.getElementById('manual-lat').value);
+  const lng=parseFloat(document.getElementById('manual-lng').value);
+  const el=document.getElementById('teacher-geo-info');
+  if(isNaN(lat)||isNaN(lng)){el.textContent='Invalid coordinates — please check and try again.';return;}
+  state.classroomLat=lat;state.classroomLng=lng;
+  localStorage.setItem('classroom_lat',lat);localStorage.setItem('classroom_lng',lng);
+  el.textContent=`GPS: ${lat.toFixed(5)}, ${lng.toFixed(5)} ✓ Saved`;
+  document.getElementById('manual-lat').value='';
+  document.getElementById('manual-lng').value='';
+}
+
+// ── Sessions / Hours config ───────────────────────────────────────────────────
+function renderSessionsTable(){
+  document.getElementById('sess-table').innerHTML=state.sessions.map((s,i)=>
+    `<tr><td>Day ${i+1}</td><td><input type="date" value="${s.date||''}" onchange="updateSessionDate(${i},this.value)"></td></tr>`
+  ).join('');
+  updateSessionsCountLabel();
+}
+function updateSessionDate(i,val){
+  state.sessions[i].date=val;
+  sv('att_sessions',state.sessions);
+  renderSessionChips();
+  buildManualSessionOptions();
+  // Refresh QR if this session is currently active
+  if(state.selectedSession===i&&state.selectedHour!==null){
+    generateQR(i,state.selectedHour);
+    const s=state.sessions[i];
+    document.getElementById('qr-context-label').textContent=
+      `Day ${i+1}${s.date?' · '+fmtDate(s.date):''} · Hour ${state.selectedHour+1}`;
+    document.getElementById('sel-session-label').textContent=
+      `Day ${i+1}${s.date?' · '+fmtDate(s.date):''}`;
+  }
+}
+function updateSessionsCountLabel(){
+  const el=document.getElementById('sessions-count-label');
+  if(el)el.textContent=`Class dates (${state.sessions.length} session${state.sessions.length===1?'':'s'})`;
+}
+function addSession(){
+  state.sessions.push({label:`Day ${state.sessions.length+1}`,date:''});
+  sv('att_sessions',state.sessions);
+  renderSessionsTable();
+  renderSessionChips();
+  buildFilterOptions();
+  buildManualSessionOptions();
+}
+function removeLastSession(){
+  if(state.sessions.length<=1){alert('최소 1개의 Day는 있어야 합니다.');return;}
+  const i=state.sessions.length-1;
+  const s=state.sessions[i];
+  const label=`Day ${i+1}${s.date?' ('+fmtDate(s.date)+')':''}`;
+  const hasData=Object.values(state.attendance||{}).some(r=>r[i]&&Object.keys(r[i]).length>0);
+  const msg=hasData
+    ? `⚠️ ${label}에 이미 출석 기록이 있습니다.\n삭제해도 구글 시트의 기록 자체는 남아있지만, 이 화면에는 더 이상 표시되지 않습니다.\n정말 삭제할까요?`
+    : `${label}을(를) 삭제할까요?`;
+  if(!confirm(msg))return;
+  state.sessions.pop();
+  sv('att_sessions',state.sessions);
+  if(state.selectedSession===i||state.selectedSession>=state.sessions.length){
+    state.selectedSession=null; state.selectedHour=null;
+    document.getElementById('hour-section').style.display='none';
+    document.getElementById('qr-section').style.display='none';
+  }
+  renderSessionsTable();
+  renderSessionChips();
+  buildFilterOptions();
+  buildManualSessionOptions();
+}
+
+function renderHourTimeInputs(){
+  document.getElementById('hour-time-card').innerHTML=state.hours.map((h,i)=>
+    `<div class="row" style="margin-bottom:8px;">
+      <label style="flex:0 0 55px;font-family:monospace;font-size:12px;color:var(--text-faint);">Hour ${i+1}</label>
+      <input type="text" value="${h.time}" style="flex:1;" onchange="updateHourTime(${i},this.value)">
+    </div>`
+  ).join('');
+  updateHoursCountLabel();
+}
+function updateHourTime(i,val){
+  state.hours[i].time=val;
+  sv('att_hours',state.hours);
+  if(state.selectedSession!==null)renderHourGrid();
+  if(state.selectedSession!==null&&state.selectedHour===i)
+    generateQR(state.selectedSession,i);
+}
+function updateHoursCountLabel(){
+  const el=document.getElementById('hours-count-label');
+  if(el)el.textContent=`Hour times (${state.hours.length} hour${state.hours.length===1?'':'s'} — apply to all sessions)`;
+}
+function addHour(){
+  state.hours.push({label:`Hour ${state.hours.length+1}`,time:''});
+  sv('att_hours',state.hours);
+  renderHourTimeInputs();
+  if(state.selectedSession!==null)renderHourGrid();
+  buildHourOptionSelects();
+}
+function removeLastHour(){
+  if(state.hours.length<=1){alert('최소 1개의 Hour는 있어야 합니다.');return;}
+  const i=state.hours.length-1;
+  const hasData=Object.values(state.attendance||{}).some(r=>Object.values(r||{}).some(sr=>sr&&sr[i]));
+  const msg=hasData
+    ? `⚠️ Hour ${i+1}에 이미 출석 기록이 있습니다.\n삭제해도 구글 시트의 기록 자체는 남아있지만, 이 화면에는 더 이상 표시되지 않습니다.\n정말 삭제할까요?`
+    : `Hour ${i+1}을(를) 삭제할까요?`;
+  if(!confirm(msg))return;
+  state.hours.pop();
+  sv('att_hours',state.hours);
+  if(state.selectedHour===i||state.selectedHour>=state.hours.length){
+    state.selectedHour=null;
+    document.getElementById('qr-section').style.display='none';
+  }
+  renderHourTimeInputs();
+  if(state.selectedSession!==null)renderHourGrid();
+  buildHourOptionSelects();
+}
+
+// Populate the Hour <select> dropdowns (copy shortcut + manual attendance) from state.hours
+function buildHourOptionSelects(){
+  const n=state.hours.length;
+  const hourOpts=Array.from({length:n},(_,i)=>`<option value="${i}">Hour ${i+1}</option>`).join('');
+  const cfh=document.getElementById('copy-from-hour');
+  const cth=document.getElementById('copy-to-hour');
+  const mh=document.getElementById('manual-hour');
+  if(cfh){
+    const cur=cfh.value;
+    cfh.innerHTML=hourOpts;
+    cfh.value=[...cfh.options].some(o=>o.value===cur)?cur:'0';
+  }
+  if(cth){
+    const cur=cth.value;
+    cth.innerHTML=hourOpts;
+    cth.value=[...cth.options].some(o=>o.value===cur)?cur:(n>1?'1':'0');
+  }
+  if(mh){
+    const cur=mh.value;
+    mh.innerHTML=`<option value="all">전체 (1–${n}시간)</option>`+hourOpts;
+    mh.value=[...mh.options].some(o=>o.value===cur)?cur:'all';
+  }
+  updateCopyPreview();
+}
+
+// ── Records — fetched from Google Sheets ─────────────────────────────────────
+function buildFilterOptions(){
+  const sel=document.getElementById('filter-session');
+  const cur=sel.value;
+  sel.innerHTML='<option value="all">All sessions</option>'+
+    state.sessions.map((s,i)=>`<option value="${i}">Day ${i+1}${s.date?' · '+fmtDate(s.date):''}</option>`).join('');
+  if([...sel.options].some(o=>o.value===cur))sel.value=cur;
+}
+
+function renderRecordsFromData(attendance){
+  state.attendance=attendance;
+  buildFilterOptions();
+  buildManualSessionOptions();
+  buildHourOptionSelects();
+  const fs=document.getElementById('filter-session').value;
+  const students=Object.keys(attendance).sort();
+  let totalCI=0,totalPos=0;
+  students.forEach(name=>{
+    const rec=attendance[name];
+    if(fs==='all'){state.sessions.forEach((_,si)=>{if(rec[si])totalCI+=Object.keys(rec[si]).length;totalPos+=state.hours.length;});}
+    else{const si=parseInt(fs);if(rec[si])totalCI+=Object.keys(rec[si]).length;totalPos+=state.hours.length;}
+  });
+  const rate=totalPos>0?Math.round(totalCI/totalPos*100):0;
+  document.getElementById('stats-row').innerHTML=`
+    <div class="stat"><div class="stat-num">${students.length}</div><div class="stat-lbl">students</div></div>
+    <div class="stat"><div class="stat-num">${fs==='all'?state.sessions.length:1}</div><div class="stat-lbl">sessions</div></div>
+    <div class="stat"><div class="stat-num">${totalCI}</div><div class="stat-lbl">check-ins</div></div>
+    <div class="stat"><div class="stat-num">${rate}%</div><div class="stat-lbl">attendance</div></div>`;
+
+  const wrap=document.getElementById('records-table-wrap');
+  if(!students.length){wrap.innerHTML='<div class="empty-state">No records yet.</div>';return;}
+
+  let hdr='';
+  if(fs==='all'){
+    hdr=state.sessions.map((s,i)=>`<th title="Day ${i+1}${s.date?' · '+fmtDate(s.date):''}">D${i+1}</th>`).join('');
+  } else {
+    hdr=state.hours.map((h,i)=>`<th>H${i+1}</th>`).join('');
+  }
+
+  const rows=students.map(name=>{
+    const rec=attendance[name];
+    let cells='',tot=0,pos=0;
+    if(fs==='all'){
+      cells=state.sessions.map((_,si)=>{
+        const sr=rec[si]||{};
+        tot+=Object.keys(sr).length;pos+=state.hours.length;
+        const dots=Array.from({length:state.hours.length},(_,hi)=>{
+          const present=!!sr[hi];
+          const title=present?(sr[hi].time||'출석'):'결석 — 클릭하여 출석 처리';
+          return `<span class="session-dot${present?' p':''}" title="${title}" onclick="toggleAttendanceDot('${name.replace(/'/g,"\\'")}',${si},${hi},${present})"></span>`;
+        }).join('');
+        return `<td><div class="session-dots">${dots}</div></td>`;
+      }).join('');
+    }else{
+      const si=parseInt(fs);const sr=rec[si]||{};
+      cells=state.hours.map((_,hi)=>{
+        const r=sr[hi];tot+=r?1:0;pos++;
+        return `<td><span class="mini-dot${r?' p':''}" title="${r?r.time:'클릭하여 출석 처리'}" style="cursor:pointer;" onclick="${r?'':` openManualPanel(${si},${hi},'${name}')`}">${r?'✓':''}</span></td>`;
+      }).join('');
+    }
+    const pct=pos>0?Math.round(tot/pos*100):0;
+    const col=pct<75?'var(--red)':pct<100?'var(--amber)':'var(--green)';
+    return `<tr><td style="font-size:13px;"><span class="name-link" onclick="openDetailPanel('${name.replace(/'/g,"\\'")}')">${name}</span></td>${cells}<td style="font-family:monospace;font-size:11px;color:var(--text-muted);">${tot}/${pos}</td><td style="font-family:monospace;font-size:11px;color:${col};">${pct}%</td></tr>`;
+  }).join('');
+
+  wrap.innerHTML=`<table class="rec-table"><thead><tr><th>Attendee</th>${hdr}<th>Total</th><th>Rate</th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+function setRecordsStatus(msg,color){
+  const el=document.getElementById('records-status');
+  if(el){el.textContent=msg;el.style.color=color||'var(--text-faint)';}
+}
+
+// JSONP — injects a <script> tag to bypass CORS on Apps Script redirects
+function jsonpFetch(url, callback){
+  const cbName='_cb'+Date.now();
+  const script=document.createElement('script');
+  const timer=setTimeout(()=>{
+    delete window[cbName];script.remove();
+    callback(null,new Error('Timeout'));
+  },10000);
+  window[cbName]=function(data){
+    clearTimeout(timer);delete window[cbName];script.remove();
+    callback(data,null);
+  };
+  script.src=url+(url.includes('?')?'&':'?')+'callback='+cbName;
+  document.head.appendChild(script);
+}
+
+// ── System status dashboard ───────────────────────────────────────────────────
+function refreshDashboard(){
+  const url=localStorage.getItem('att_script_url')||'';
+  const connDot=document.getElementById('dash-conn-dot');
+  const connLabel=document.getElementById('dash-conn-label');
+  const att=state.attendance||{};
+  const students=Object.keys(att);
+  let totalCI=0,lastTime='';
+  students.forEach(name=>{
+    Object.values(att[name]||{}).forEach(sr=>{
+      Object.values(sr||{}).forEach(r=>{totalCI++;if(r.time&&r.time>lastTime)lastTime=r.time;});
+    });
+  });
+  document.getElementById('dash-students').textContent=students.length||'0';
+  document.getElementById('dash-checkins').textContent=totalCI||'0';
+  document.getElementById('dash-last').textContent=lastTime||'—';
+  if(!url){
+    connDot.style.background='var(--red)';
+    connLabel.textContent='구글 시트 미연결';
+    return;
+  }
+  connDot.style.background='var(--amber)';
+  connLabel.textContent='연결 확인 중…';
+  jsonpFetch(buildURL(url,{action:'get_records'}),(data,err)=>{
+    if(err||!data||data.status!=='ok'){
+      connDot.style.background='var(--red)';
+      connLabel.textContent='연결 오류 — Script URL 또는 Secret Key를 확인하세요';
+      return;
+    }
+    connDot.style.background='var(--green)';
+    const rec=data.records||{};
+    const s=Object.keys(rec);
+    let ci=0,lt='';
+    s.forEach(name=>{Object.values(rec[name]||{}).forEach(sr=>{Object.values(sr||{}).forEach(r=>{ci++;if(r.time>lt)lt=r.time;});});});
+    document.getElementById('dash-students').textContent=s.length;
+    document.getElementById('dash-checkins').textContent=ci;
+    document.getElementById('dash-last').textContent=lt||'—';
+    connLabel.textContent='✓ 구글 시트 연결됨 · '+new Date().toLocaleTimeString();
+    renderRecordsFromData(rec);
+  });
+}
+
+function renderRecords(){
+  const url=localStorage.getItem('att_script_url')||'';  if(!url){
+    renderRecordsFromData(ld('att_records',{}));
+    setRecordsStatus('Google Sheets not configured — showing local data only','var(--amber)');
+    return;
+  }
+  setRecordsStatus('Loading from Google Sheets…');
+  jsonpFetch(buildURL(url,{action:'get_records'}),(data,err)=>{
+    if(err||!data||data.status!=='ok'){
+      renderRecordsFromData(ld('att_records',{}));
+      setRecordsStatus('Could not reach Google Sheets — showing local data','var(--red)');
+      return;
+    }
+    renderRecordsFromData(data.records||{});
+    setRecordsStatus('Updated · '+new Date().toLocaleTimeString());
+  });
+}
+
+// Auto-refresh records every 30s when Records tab is open
+let recordsPollInterval=null;
+function startRecordsPoll(){
+  if(recordsPollInterval)clearInterval(recordsPollInterval);
+  recordsPollInterval=setInterval(()=>{
+    if(document.getElementById('panel-records').classList.contains('active'))renderRecords();
+  },30000);
+}
+
+function exportCSV(){
+  const attendance=state.attendance||{};
+  const students=Object.keys(attendance).sort();
+  if(!students.length){alert('No records.');return;}
+  const q=v=>`"${String(v).replace(/"/g,'""')}"`;
+  const hdr=[q('Name'),...state.sessions.flatMap((s,si)=>state.hours.map((_,hi)=>q(`Day${si+1}${s.date?'_'+s.date:''}_H${hi+1}`))),'Total','Rate(%)'];
+  const rows=students.map(name=>{
+    const rec=attendance[name];let tot=0,pos=0;
+    const cols=state.sessions.flatMap((_,si)=>state.hours.map((_,hi)=>{
+      const r=rec[si]?.[hi];pos++;if(r){tot++;return q(r.time);}return 'absent';
+    }));
+    return [q(name),...cols,tot,Math.round(tot/pos*100)].join(',');
+  });
+  const csv=[hdr.join(','),...rows].join('\n');
+  Object.assign(document.createElement('a'),{href:URL.createObjectURL(new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8'})),download:`${state.courseNumber||'attendance'}.csv`}).click();
+}
+
+function clearRecords(){
+  if(!confirm('모든 출석 데이터를 삭제할까요?\n\n• 구글 시트 Attendance Log\n• 구글 시트 Summary\n• 구글 시트 Renames\n• 로컬 데이터\n\n이 작업은 되돌릴 수 없습니다.'))return;
+
+  const url=localStorage.getItem('att_script_url')||'';
+
+  // Clear local data immediately
+  state.attendance={};
+  sv('att_records',{});
+  sv('att_renames',{});
+  renderRecords();
+  renderSessionChips();
+  updateRenameBanner();
+
+  if(!url){
+    setRecordsStatus('로컬 데이터만 삭제됨 — 구글 시트는 수동으로 삭제하세요','var(--amber)');
+    return;
+  }
+
+  setRecordsStatus('구글 시트 데이터 삭제 중…','var(--amber)');
+  const cbName='_ca'+Date.now();
+  const script=document.createElement('script');
+  const timer=setTimeout(()=>{
+    delete window[cbName];script.remove();
+    setRecordsStatus('시간 초과 — 구글 시트를 직접 확인하세요','var(--red)');
+  },15000);
+  window[cbName]=function(data){
+    clearTimeout(timer);delete window[cbName];script.remove();
+    if(data&&data.status==='ok'){
+      setRecordsStatus('✓ 모든 데이터 삭제 완료','var(--green)');
+    } else {
+      setRecordsStatus('오류: '+(data&&data.message||'알 수 없음'),'var(--red)');
+    }
+  };
+  script.src=buildURL(url,{action:'clear_all'})+'&callback='+cbName;
+  document.head.appendChild(script);
+}
+
+// ── Rename reminder banner ────────────────────────────────────────────────────
+function updateRenameBanner(){
+  const renames=ld('att_renames',{});
+  const banner=document.getElementById('rename-reminder');
+  const detail=document.getElementById('rename-reminder-detail');
+  if(!banner||!detail)return;
+  const entries=Object.entries(renames);
+  if(entries.length===0){
+    banner.style.display='none';
+  } else {
+    banner.style.display='block';
+    detail.textContent=entries.map(([o,n])=>`"${o}" → "${n}"`).join(' · ');
+  }
+}
+
+// ── Renames — persisted in Google Sheet ──────────────────────────────────────
+function loadRenamesFromSheet(){
+  const url=localStorage.getItem('att_script_url')||'';
+  if(!url)return;
+  const cbName='_gr'+Date.now();
+  const script=document.createElement('script');
+  const timer=setTimeout(()=>{delete window[cbName];script.remove();},10000);
+  window[cbName]=function(data){
+    clearTimeout(timer);delete window[cbName];script.remove();
+    if(data&&data.status==='ok'){
+      sv('att_renames',data.renames||{});
+      updateRenameBanner();
+    }
+  };
+  script.src=buildURL(url,{action:'get_renames'})+'&callback='+cbName;
+  document.head.appendChild(script);
+}
+
+// Poll renames every 10s — always check sheet directly since student and teacher are on different devices
+let renamesPollInterval=null;
+function startRenamesPoll(){
+  if(renamesPollInterval)clearInterval(renamesPollInterval);
+  renamesPollInterval=setInterval(()=>{
+    if(Object.keys(ld('att_renames',{})).length>0) loadRenamesFromSheet();
+  },10000);
+}
+
+function saveRenameToSheet(oldName, newName){
+  const url=localStorage.getItem('att_script_url')||'';
+  if(!url)return;
+  const cbName='_sr'+Date.now();
+  const script=document.createElement('script');
+  const timer=setTimeout(()=>{delete window[cbName];script.remove();},10000);
+  window[cbName]=function(){clearTimeout(timer);delete window[cbName];script.remove();};
+  script.src=buildURL(url,{action:'save_rename',oldName,newName})+'&callback='+cbName;
+  document.head.appendChild(script);
+}
+
+function deleteRenameFromSheet(oldName){
+  const url=localStorage.getItem('att_script_url')||'';
+  if(!url)return;
+  const cbName='_dr'+Date.now();
+  const script=document.createElement('script');
+  const timer=setTimeout(()=>{delete window[cbName];script.remove();},10000);
+  window[cbName]=function(){clearTimeout(timer);delete window[cbName];script.remove();};
+  script.src=buildURL(url,{action:'delete_rename',oldName})+'&callback='+cbName;
+  document.head.appendChild(script);
+}
+
+// ── Dot toggle ────────────────────────────────────────────────────────────────
+function toggleAttendanceDot(name, si, hi, currentlyPresent){
+  const url=localStorage.getItem('att_script_url')||'';
+  const s=state.sessions[si];
+  const course=ld('att_course_pub',{});
+  const now=new Date();
+  const timeStr=now.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',hour12:true});
+  const dayLabel=`Day ${si+1}${s.date?' ('+fmtDate(s.date)+')':''}`;
+  const hourLabel=`Hour ${hi+1}`;
+
+  if(currentlyPresent){
+    // Delete from sheet
+    if(!confirm(`${name}\n${dayLabel} · ${hourLabel} 출석을 취소할까요?`))return;
+    setRecordsStatus(`${name} · ${dayLabel} · ${hourLabel} 출석 취소 중…`,'var(--amber)');
+    const cbName='_del'+Date.now();
+    const script=document.createElement('script');
+    const timer=setTimeout(()=>{delete window[cbName];script.remove();setRecordsStatus('시간 초과','var(--red)');},10000);
+    window[cbName]=function(data){
+      clearTimeout(timer);delete window[cbName];script.remove();
+      if(data&&data.status==='ok'){
+        setRecordsStatus(`✓ ${name} · ${dayLabel} · ${hourLabel} 출석 취소 완료`,'var(--green)');
+        setTimeout(()=>renderRecords(),1000);
+      } else {
+        setRecordsStatus('오류: '+(data&&data.message||'알 수 없음'),'var(--red)');
+      }
+    };
+    script.src=buildURL(url,{action:'delete_checkin',name,session:si,hour:hi})+'&callback='+cbName;
+    document.head.appendChild(script);
+    return;
+  }
+
+  // Add attendance
+  setRecordsStatus(`${name} · ${dayLabel} · ${hourLabel} 출석 처리 중…`,'var(--amber)');
+  const cbName='_dot'+Date.now();
+  const script=document.createElement('script');
+  const timer=setTimeout(()=>{delete window[cbName];script.remove();setRecordsStatus('시간 초과','var(--red)');},10000);
+  window[cbName]=function(data){
+    clearTimeout(timer);delete window[cbName];script.remove();
+    if(data&&data.status==='ok'){
+      setRecordsStatus(`✓ ${name} · ${dayLabel} · ${hourLabel} 출석 처리 완료`,'var(--green)');
+      setTimeout(()=>renderRecords(),1000);
+    } else {
+      setRecordsStatus('오류: '+(data&&data.message||'알 수 없음'),'var(--red)');
+    }
+  };
+  script.src=buildURL(url,{
+    action:'checkin',
+    name,previousName:'',
+    session:si,hour:hi,
+    sessionDate:s.date||'',
+    hourLabel:state.hours[hi]?.time||('Hour '+(hi+1)),
+    checkInTime:timeStr,dist:'',
+    courseTitle:course.title||'',
+    courseNumber:course.number||'',
+    teacherName:course.teacher||'',
+  })+'&callback='+cbName;
+  document.head.appendChild(script);
+}
+
+function deleteStudentRecords(name){
+  if(!confirm(`"${name}"의 모든 출석 기록을 삭제할까요?\n이 작업은 되돌릴 수 없습니다.`))return;
+  const url=localStorage.getItem('att_script_url')||'';
+
+  // Remove from local state
+  const att=ld('att_records',{});
+  delete att[name];
+  sv('att_records',att);
+  closeDetailPanel();
+
+  if(!url){
+    setRecordsStatus(`"${name}" 로컬 기록 삭제됨 — 구글 시트는 수동 삭제 필요`,'var(--amber)');
+    renderRecords();return;
+  }
+
+  setRecordsStatus(`"${name}" 기록 삭제 중…`,'var(--amber)');
+  const cbName='_ds'+Date.now();
+  const script=document.createElement('script');
+  const timer=setTimeout(()=>{delete window[cbName];script.remove();setRecordsStatus('시간 초과','var(--red)');},15000);
+  window[cbName]=function(data){
+    clearTimeout(timer);delete window[cbName];script.remove();
+    if(data&&data.status==='ok'){
+      setRecordsStatus(`✓ "${name}" 기록 삭제 완료 (${data.message})`,'var(--green)');
+    } else {
+      setRecordsStatus('오류: '+(data&&data.message||'알 수 없음'),'var(--red)');
+    }
+    setTimeout(()=>renderRecords(),1000);
+  };
+  script.src=buildURL(url,{action:'delete_student',name})+'&callback='+cbName;
+  document.head.appendChild(script);
+}
+
+// ── Student detail panel ──────────────────────────────────────────────────────
+function openDetailPanel(name){
+  const rec=state.attendance[name]||{};
+  let tot=0,pos=0;
+  state.sessions.forEach((_,si)=>{
+    state.hours.forEach((_,hi)=>{pos++;if(rec[si]&&rec[si][hi])tot++;});
+  });
+  const pct=pos>0?Math.round(tot/pos*100):0;
+  const col=pct<75?'var(--red)':pct<100?'var(--amber)':'var(--green)';
+
+  document.getElementById('detail-name').innerHTML=`
+    <span id="detail-name-text">👤 ${name}</span>
+    <button class="btn btn-sm" style="margin-left:10px;font-size:11px;" onclick="startRenameStudent('${name.replace(/'/g,"\\'")}')">이름 수정</button>
+    <button class="btn btn-sm btn-danger" style="margin-left:6px;font-size:11px;" onclick="deleteStudentRecords('${name.replace(/'/g,"\\'")}')">🗑 기록 삭제</button>`;
+  document.getElementById('detail-stats').innerHTML=
+    `출석 ${tot}/${pos}시간 &nbsp;·&nbsp; <span style="color:${col};font-weight:500;">${pct}%</span>`;
+
+  const grid=document.getElementById('detail-grid');
+  grid.innerHTML=state.sessions.map((s,si)=>{
+    const sr=rec[si]||{};
+    const hrs=Object.keys(sr).length;
+    const cls=hrs===state.hours.length?'full':hrs>0?'partial':'absent';
+    const dateStr=s.date?fmtDate(s.date):'날짜 미정';
+    const hourRows=state.hours.map((h,hi)=>{
+      const r=sr[hi];
+      return `<div class="ds-hour${r?' present':''}">
+        <span>${h.time}</span>
+        <span>${r?'✓ '+r.time:'결석'}</span>
+      </div>`;
+    }).join('');
+    return `<div class="detail-session ${cls}">
+      <div class="ds-head">
+        <span class="ds-day ${cls}">Day ${si+1} &nbsp;${hrs}/${state.hours.length}</span>
+        <span class="ds-date">${dateStr}</span>
+      </div>
+      <div class="ds-hours">${hourRows}</div>
+    </div>`;
+  }).join('');
+
+  const panel=document.getElementById('detail-panel');
+  panel.classList.add('open');
+  panel.scrollIntoView({behavior:'smooth',block:'nearest'});
+}
+
+function startRenameStudent(currentName){
+  const newName=prompt(`"${currentName}"의 이름을 수정합니다.\n새 이름을 입력하세요:`, currentName);
+  if(!newName||newName.trim()===currentName)return;
+  const trimmed=newName.trim();
+  if(!confirm(`"${currentName}" → "${trimmed}"으로 변경할까요?\n구글 시트의 모든 기록도 함께 변경됩니다.`))return;
+  applyRenameStudent(currentName, trimmed);
+}
+
+function applyRenameStudent(oldName, newName){
+  const url=localStorage.getItem('att_script_url')||'';
+  setRecordsStatus(`"${oldName}" → "${newName}" 변경 중…`,'var(--amber)');
+
+  // Save to renames map — will be embedded in next QR so student phones auto-update
+  const renames=ld('att_renames',{});
+  renames[oldName]=newName;
+  sv('att_renames',renames);
+  // Also persist to Google Sheet so it survives browser cache clears
+  saveRenameToSheet(oldName, newName);
+  updateRenameBanner();
+
+  // Update local records
+  const att=ld('att_records',{});
+  if(att[oldName]){
+    att[newName]=att[newName]||{};
+    Object.keys(att[oldName]).forEach(si=>{
+      att[newName][si]=att[newName][si]||{};
+      Object.assign(att[newName][si],att[oldName][si]);
+    });
+    delete att[oldName];
+    sv('att_records',att);
+  }
+
+  closeDetailPanel();
+
+  if(!url){
+    setRecordsStatus('로컬만 변경됨 — 구글 시트는 수동으로 수정하세요','var(--amber)');
+    renderRecords();return;
+  }
+
+  // Update Google Sheet via rename action
+  const cbName='_rn'+Date.now();
+  const script=document.createElement('script');
+  const timer=setTimeout(()=>{
+    delete window[cbName];script.remove();
+    setRecordsStatus('시간 초과 — Refresh로 확인하세요','var(--red)');
+  },15000);
+  window[cbName]=function(data){
+    clearTimeout(timer);delete window[cbName];script.remove();
+    if(data&&data.status==='ok'){
+      setRecordsStatus(`✓ "${oldName}" → "${newName}" 변경 완료`,'var(--green)');
+    }else{
+      setRecordsStatus('오류: '+(data&&data.message||'알 수 없음'),'var(--red)');
+    }
+    setTimeout(()=>renderRecords(),1000);
+  };
+  script.src=buildURL(url,{action:'rename',oldName,newName})+'&callback='+cbName;
+  document.head.appendChild(script);
+}
+
+function closeDetailPanel(){
+  document.getElementById('detail-panel').classList.remove('open');
+}
+
+// ── Manual attendance ─────────────────────────────────────────────────────────
+let manualTarget={si:null,hi:null,name:null};
+
+function buildManualSessionOptions(){
+  const sel=document.getElementById('manual-session');
+  const copySel=document.getElementById('copy-session');
+  if(!sel)return;
+  const opts=state.sessions.map((s,i)=>
+    `<option value="${i}">Day ${i+1}${s.date?' · '+fmtDate(s.date):''}</option>`
+  ).join('');
+  sel.innerHTML=opts;
+  if(copySel){ copySel.innerHTML=opts; updateCopyPreview(); }
+}
+
+function updateCopyPreview(){
+  const si=parseInt(document.getElementById('copy-session').value);
+  const fromHi=parseInt(document.getElementById('copy-from-hour').value);
+  const toHi=parseInt(document.getElementById('copy-to-hour').value);
+  const s=state.sessions[si];
+  const el0=document.getElementById('copy-preview');
+  if(isNaN(si)||isNaN(fromHi)||isNaN(toHi)||!s){if(el0)el0.textContent='';return;}
+  const dayLabel=`Day ${si+1}${s.date?' ('+fmtDate(s.date)+')':''}`;
+  const attendance=state.attendance||{};
+  const students=Object.keys(attendance).filter(name=>attendance[name]?.[si]?.[fromHi]);
+  const el=document.getElementById('copy-preview');
+  if(!el)return;
+  el.textContent=`${dayLabel} · Hour ${fromHi+1} 출석자 ${students.length}명 → Hour ${toHi+1}로 복사`;
+}
+
+function copyPrevHourAttendance(){
+  const si=parseInt(document.getElementById('copy-session').value);
+  const fromHi=parseInt(document.getElementById('copy-from-hour').value);
+  const toHi=parseInt(document.getElementById('copy-to-hour').value);
+
+  if(fromHi===toHi){
+    alert('출처와 대상 Hour가 같습니다. 다르게 선택해주세요.');return;
+  }
+
+  const url=localStorage.getItem('att_script_url')||'';
+  const s=state.sessions[si];
+  const dayLabel=`Day ${si+1}${s.date?' ('+fmtDate(s.date)+')':''}`;
+  const course=ld('att_course_pub',{});
+  const attendance=state.attendance||{};
+  const targets=Object.keys(attendance).filter(name=>attendance[name]?.[si]?.[fromHi]);
+
+  if(!targets.length){
+    alert(`Hour ${fromHi+1}에 출석한 학생이 없습니다.`);return;
+  }
+
+  const confirmed=confirm(`${dayLabel}\nHour ${fromHi+1} 출석자 ${targets.length}명을 Hour ${toHi+1}에도 출석 처리할까요?\n\n${targets.join('\n')}`);
+  if(!confirmed)return;
+
+  const now=new Date();
+  const timeStr=now.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',hour12:true});
+
+  const items=targets.map(name=>({
+    name,
+    previousName:'',
+    session:si,
+    hour:toHi,
+    sessionDate:s.date||'',
+    hourLabel:state.hours[toHi]?.time||('Hour '+(toHi+1)),
+    checkInTime:timeStr,
+    dist:'',
+    courseTitle:course.title||'',
+    courseNumber:course.number||'',
+    teacherName:course.teacher||'',
+  }));
+
+  setRecordsStatus(`${dayLabel} · Hour ${fromHi+1} → Hour ${toHi+1} 복사 중 (${items.length}명)…`,'var(--amber)');
+  closeManualPanel();
+
+  let idx=0;
+  function sendNext(){
+    if(idx>=items.length){
+      setRecordsStatus(`✓ ${dayLabel} · Hour ${fromHi+1} → Hour ${toHi+1} · ${items.length}명 복사 완료`,'var(--green)');
+      renderRecords(); // 즉시 refresh — 대기 없음
+      return;
+    }
+    const item=items[idx];
+    const isLast=idx===items.length-1;
+    setRecordsStatus(`${dayLabel} · Hour ${fromHi+1} → Hour ${toHi+1} — ${idx+1} / ${items.length}건 처리 중 (${item.name})…`,'var(--amber)');
+    const cbName='_cp'+Date.now()+'_'+idx;
+    const script=document.createElement('script');
+    const timer=setTimeout(()=>{delete window[cbName];script.remove();idx++;sendNext();},10000);
+    window[cbName]=function(){clearTimeout(timer);delete window[cbName];script.remove();idx++;setTimeout(sendNext,100);};
+    script.src=buildURL(url,{action:'checkin',...item,skipSummary:isLast?'false':'true'})+'&callback='+cbName;
+    document.head.appendChild(script);
+  }
+  sendNext();
+}
+
+function openManualPanel(si,hi,name){
+  manualTarget={si,hi,name:name||null};
+  const card=document.getElementById('manual-att-card');
+  document.getElementById('manual-session').value=si;
+  document.getElementById('manual-hour').value=hi==='all'?'all':String(hi);
+  updateManualLabel();
+  card.style.display='block';
+  card.scrollIntoView({behavior:'smooth',block:'nearest'});
+  document.getElementById('manual-session').onchange=updateManualLabel;
+  document.getElementById('manual-hour').onchange=updateManualLabel;
+  // Copy dropdowns
+  const cs=document.getElementById('copy-session');
+  const cfh=document.getElementById('copy-from-hour');
+  const cth=document.getElementById('copy-to-hour');
+  if(cs)cs.onchange=updateCopyPreview;
+  if(cfh)cfh.onchange=updateCopyPreview;
+  if(cth)cth.onchange=updateCopyPreview;
+}
+
+function updateManualLabel(){
+  const si=parseInt(document.getElementById('manual-session').value);
+  const hiVal=document.getElementById('manual-hour').value;
+  const s=state.sessions[si];
+  const dayLabel=`Day ${si+1}${s.date?' ('+fmtDate(s.date)+')':''}`;
+  const hourLabel=hiVal==='all'?`전체 ${state.hours.length}시간`:`Hour ${parseInt(hiVal)+1}`;
+  const students=Object.keys(state.attendance||{});
+  const targetLabel=manualTarget.name?`"${manualTarget.name}"`:
+    `전체 학생 ${students.length}명`;
+  document.getElementById('manual-target-label').textContent=
+    `→ ${targetLabel} · ${dayLabel} · ${hourLabel} 출석 처리`;
+}
+
+function closeManualPanel(){
+  document.getElementById('manual-att-card').style.display='none';
+  manualTarget={si:null,hi:null,name:null};
+}
+
+function applyManualAttendance(){
+  const si=parseInt(document.getElementById('manual-session').value);
+  const hiVal=document.getElementById('manual-hour').value;
+  const hours=hiVal==='all'?state.hours.map((_,i)=>i):[parseInt(hiVal)];
+  const url=localStorage.getItem('att_script_url')||'';
+  const s=state.sessions[si];
+  const course=ld('att_course_pub',{});
+  const allStudents=Object.keys(state.attendance||{});
+  const targets=manualTarget.name?[manualTarget.name]:allStudents;
+
+  if(!targets.length){
+    alert('출석 처리할 학생이 없습니다. 먼저 학생들이 한 번이라도 체크인해야 목록에 나타납니다.');
+    return;
+  }
+
+  const now=new Date();
+  const timeStr=now.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',hour12:true});
+  const dayLabel=`Day ${si+1}${s.date?' ('+fmtDate(s.date)+')':''}`;
+  const hourLabel2=hiVal==='all'?`전체 ${state.hours.length}시간`:`Hour ${parseInt(hiVal)+1}`;
+  const targetLabel2=manualTarget.name?`"${manualTarget.name}"`:
+    `전체 학생 ${targets.length}명`;
+  const queue=[];
+  targets.forEach(name=>{
+    hours.forEach(hi=>{
+      queue.push({
+        name,
+        previousName:'',
+        session:si,
+        hour:hi,
+        sessionDate:s.date||'',
+        hourLabel:state.hours[hi]?.time||('Hour '+(hi+1)),
+        checkInTime:timeStr,
+        dist:'',
+        courseTitle:course.title||'',
+        courseNumber:course.number||'',
+        teacherName:course.teacher||'',
+      });
+    });
+  });
+
+  if(!queue.length){alert('출석 처리할 항목이 없습니다.');return;}
+
+  closeManualPanel();
+  setRecordsStatus(`${targetLabel2} · ${dayLabel} · ${hourLabel2} — 0 / ${queue.length}건 처리 중…`,'var(--amber)');
+
+  let idx=0;
+  function sendNext(){
+    if(idx>=queue.length){
+      setRecordsStatus(`✓ ${targetLabel2} · ${dayLabel} · ${hourLabel2} — ${queue.length}건 완료`,'var(--green)');
+      setTimeout(()=>renderRecords(),1500);
+      return;
+    }
+    const item=queue[idx];
+    const isLast=idx===queue.length-1;
+    setRecordsStatus(`${dayLabel} · ${hourLabel2} — ${idx+1} / ${queue.length}건 처리 중 (${item.name} · Hour ${item.hour+1})…`,'var(--amber)');
+    const cbName='_mc'+Date.now()+'_'+idx;
+    const script=document.createElement('script');
+    const reqUrl=buildURL(url,{action:'checkin',...item,skipSummary:isLast?'false':'true'})+'&callback='+cbName;
+    const timer=setTimeout(()=>{
+      delete window[cbName];script.remove();
+      idx++;sendNext();
+    },10000);
+    window[cbName]=function(data){
+      clearTimeout(timer);delete window[cbName];script.remove();
+      idx++;
+      setTimeout(sendNext,100);
+    };
+    script.onerror=function(){
+      clearTimeout(timer);delete window[cbName];script.remove();
+      setRecordsStatus(`❌ 오류 (${item.name}) — 잠시 후 다시 시도해주세요`,'var(--red)');
+    };
+    script.src=reqUrl;
+    document.head.appendChild(script);
+  }
+  sendNext();
+}
+
+// Start polling
+startRecordsPoll();
+
+// Listen for rename confirmations from student pages
+function cleanAppliedRenames(){
+  // Reload from sheet — sheet is authoritative, student page deleted the entry already
+  sv('att_renames_applied',{});
+  loadRenamesFromSheet();
+}
+
+// Same-browser BroadcastChannel (fallback for testing on same device)
+if(typeof BroadcastChannel!=='undefined'){
+  const bc=new BroadcastChannel('att_sync');
+  bc.onmessage=e=>{
+    if(e.data&&e.data.type==='rename_applied') cleanAppliedRenames();
+    if(e.data==='att_records') onAttendanceUpdate?.();
+  };
+}
+window.addEventListener('storage',e=>{
+  if(e.key==='att_renames_applied') cleanAppliedRenames();
+});
+
+</script>
+</body>
+</html>
