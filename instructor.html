@@ -1836,13 +1836,37 @@ function startRenamesPoll(){
   },10000);
 }
 
-function saveRenameToSheet(oldName, newName){
+function saveRenameToSheet(oldName, newName, retriesLeft, onDone){
   const url=localStorage.getItem('att_script_url')||'';
-  if(!url)return;
-  const cbName='_sr'+Date.now();
+  if(!url){ if(onDone)onDone(false); return; }
+  if(retriesLeft===undefined)retriesLeft=2;
+  const cbName='_sr'+Date.now()+Math.random().toString(36).slice(2,6);
   const script=document.createElement('script');
-  const timer=setTimeout(()=>{delete window[cbName];script.remove();},10000);
-  window[cbName]=function(){clearTimeout(timer);delete window[cbName];script.remove();};
+  const giveUp=()=>{
+    showToast(`❌ "${oldName}" → "${newName}" 수정 정보가 학생에게 전달되지 못했습니다. 다시 시도해 주세요.`,'var(--red)');
+    if(onDone)onDone(false);
+  };
+  const timer=setTimeout(()=>{
+    delete window[cbName];script.remove();
+    if(retriesLeft>0) saveRenameToSheet(oldName,newName,retriesLeft-1,onDone); else giveUp();
+  },10000);
+  window[cbName]=function(data){
+    clearTimeout(timer);delete window[cbName];script.remove();
+    // This request is what actually lets the student's device learn about
+    // the correction (via the Renames sheet embedded in their next QR) —
+    // silently ignoring a failure here means the rename looks like it
+    // worked (the Master sheet IS updated separately) while the student
+    // never finds out. Always check the result and retry/alert on failure.
+    if(data&&data.status==='ok'){
+      if(onDone)onDone(true);
+    }else{
+      if(retriesLeft>0) saveRenameToSheet(oldName,newName,retriesLeft-1,onDone); else giveUp();
+    }
+  };
+  script.onerror=function(){
+    clearTimeout(timer);delete window[cbName];script.remove();
+    if(retriesLeft>0) saveRenameToSheet(oldName,newName,retriesLeft-1,onDone); else giveUp();
+  };
   script.src=buildURL(url,{action:'save_rename',oldName,newName})+'&callback='+cbName;
   document.head.appendChild(script);
 }
@@ -2022,8 +2046,6 @@ function applyRenameStudent(oldName, newName){
   const renames=ld('att_renames',{});
   renames[oldName]=newName;
   sv('att_renames',renames);
-  // Also persist to Google Sheet so it survives browser cache clears
-  saveRenameToSheet(oldName, newName);
   updateRenameBanner();
 
   // Update local records
@@ -2045,24 +2067,30 @@ function applyRenameStudent(oldName, newName){
     renderRecords();return;
   }
 
-  // Update Google Sheet via rename action
-  const cbName='_rn'+Date.now();
-  const script=document.createElement('script');
-  const timer=setTimeout(()=>{
-    delete window[cbName];script.remove();
-    setRecordsStatus('시간 초과 — Refresh로 확인하세요','var(--red)');
-  },15000);
-  window[cbName]=function(data){
-    clearTimeout(timer);delete window[cbName];script.remove();
-    if(data&&data.status==='ok'){
-      setRecordsStatus(`✓ "${oldName}" → "${newName}" 변경 완료`,'var(--green)');
-    }else{
-      setRecordsStatus('오류: '+(data&&data.message||'알 수 없음'),'var(--red)');
-    }
-    setTimeout(()=>renderRecords(),1000);
-  };
-  script.src=buildURL(url,{action:'rename',oldName,newName})+'&callback='+cbName;
-  document.head.appendChild(script);
+  // Save to Renames sheet FIRST, and only once that's actually confirmed
+  // (with retries) fire the Master-sheet rename — sequencing these instead
+  // of firing both at once avoids two lock-requiring writes racing each
+  // other on a busy class, which could otherwise let one silently lose.
+  saveRenameToSheet(oldName, newName, undefined, function(){
+    // Update Google Sheet via rename action
+    const cbName='_rn'+Date.now();
+    const script=document.createElement('script');
+    const timer=setTimeout(()=>{
+      delete window[cbName];script.remove();
+      setRecordsStatus('시간 초과 — Refresh로 확인하세요','var(--red)');
+    },15000);
+    window[cbName]=function(data){
+      clearTimeout(timer);delete window[cbName];script.remove();
+      if(data&&data.status==='ok'){
+        setRecordsStatus(`✓ "${oldName}" → "${newName}" 변경 완료`,'var(--green)');
+      }else{
+        setRecordsStatus('오류: '+(data&&data.message||'알 수 없음'),'var(--red)');
+      }
+      setTimeout(()=>renderRecords(),1000);
+    };
+    script.src=buildURL(url,{action:'rename',oldName,newName})+'&callback='+cbName;
+    document.head.appendChild(script);
+  });
 }
 
 function closeDetailPanel(){
