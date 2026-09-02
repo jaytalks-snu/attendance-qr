@@ -393,6 +393,18 @@
         <button class="btn btn-sm" onclick="addSession()">+ Add day</button>
         <button class="btn btn-sm btn-danger" onclick="removeLastSession()">− Remove last day</button>
       </div>
+      <details style="margin-top:12px;">
+        <summary style="cursor:pointer;font-family:monospace;font-size:12px;color:var(--text-faint);">📋 여러 날짜 한번에 붙여넣기</summary>
+        <div style="margin-top:8px;">
+          <textarea id="bulk-sessions-input" rows="5" placeholder="한 줄에 날짜 하나씩 (예: 2026-03-02)&#10;엑셀/강의계획서에서 날짜 열을 복사해 그대로 붙여넣어도 됩니다." style="width:100%;padding:8px 10px;border:1px solid var(--border-strong);border-radius:var(--radius);font-size:12px;font-family:monospace;background:var(--surface);resize:vertical;"></textarea>
+          <div class="btn-row" style="justify-content:flex-start;margin-top:8px;">
+            <button class="btn btn-sm btn-primary" onclick="bulkApplySessions()">적용 — 전체 Day를 이 목록으로 교체</button>
+          </div>
+          <div style="font-size:11px;color:var(--text-faint);font-family:monospace;margin-top:6px;">
+            ⚠️ 지금 있는 Day 목록 전체가 붙여넣은 내용으로 교체됩니다.
+          </div>
+        </div>
+      </details>
     </div>
 
     <div class="section-label" id="hours-count-label">Hour times</div>
@@ -402,6 +414,18 @@
         <button class="btn btn-sm" onclick="addHour()">+ Add hour</button>
         <button class="btn btn-sm btn-danger" onclick="removeLastHour()">− Remove last hour</button>
       </div>
+      <details style="margin-top:12px;">
+        <summary style="cursor:pointer;font-family:monospace;font-size:12px;color:var(--text-faint);">📋 여러 시간 한번에 붙여넣기</summary>
+        <div style="margin-top:8px;">
+          <textarea id="bulk-hours-input" rows="4" placeholder="한 줄에 시간 하나씩 (예: 9:00–10:00 AM)" style="width:100%;padding:8px 10px;border:1px solid var(--border-strong);border-radius:var(--radius);font-size:12px;font-family:monospace;background:var(--surface);resize:vertical;"></textarea>
+          <div class="btn-row" style="justify-content:flex-start;margin-top:8px;">
+            <button class="btn btn-sm btn-primary" onclick="bulkApplyHours()">적용 — 전체 Hour를 이 목록으로 교체</button>
+          </div>
+          <div style="font-size:11px;color:var(--text-faint);font-family:monospace;margin-top:6px;">
+            ⚠️ 지금 있는 Hour 목록 전체가 붙여넣은 내용으로 교체됩니다.
+          </div>
+        </div>
+      </details>
     </div>
 
     <div class="card" style="text-align:center;">
@@ -1264,6 +1288,47 @@ function addSession(){
   buildFilterOptions();
   buildManualSessionOptions();
 }
+
+// Turns a pasted line into an ISO yyyy-mm-dd date (what the date inputs
+// expect). Accepts already-ISO dates as-is, and tries to parse anything else
+// (e.g. "3/2/2026" pasted from Excel) via the browser's Date parser. Returns
+// '' if the line can't be understood as a date, rather than storing garbage.
+function parseDateLine(line){
+  line=line.trim();
+  if(!line)return '';
+  if(/^\d{4}-\d{2}-\d{2}$/.test(line))return line;
+  const d=new Date(line);
+  if(!isNaN(d.getTime())){
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  }
+  return '';
+}
+
+function bulkApplySessions(){
+  const ta=document.getElementById('bulk-sessions-input');
+  const lines=ta.value.split('\n').map(s=>s.trim()).filter(s=>s.length>0);
+  if(lines.length===0){alert('날짜를 한 줄에 하나씩 입력해 주세요.');return;}
+  const newSessions=lines.map((line,i)=>({label:`Day ${i+1}`,date:parseDateLine(line)}));
+  const hasDataBeyond=Object.values(state.attendance||{}).some(r=>
+    Object.keys(r||{}).some(si=>parseInt(si)>=newSessions.length && r[si] && Object.keys(r[si]).length>0)
+  );
+  const msg=hasDataBeyond
+    ? `⚠️ 지금 있는 Day 목록(${state.sessions.length}개)을 붙여넣은 ${newSessions.length}개로 완전히 교체합니다.\n일부 Day에는 이미 출석 기록이 있습니다 — 시트의 기록 자체는 남지만, 화면에는 더 이상 표시되지 않습니다.\n계속할까요?`
+    : `지금 있는 Day 목록(${state.sessions.length}개)을 붙여넣은 ${newSessions.length}개로 교체할까요?`;
+  if(!confirm(msg))return;
+  state.sessions=newSessions;
+  sv('att_sessions',state.sessions);
+  state.selectedSession=null; state.selectedHour=null;
+  document.getElementById('hour-section').style.display='none';
+  document.getElementById('qr-section').style.display='none';
+  renderSessionsTable();
+  renderSessionChips();
+  buildFilterOptions();
+  buildManualSessionOptions();
+  ta.value='';
+  const unparsed=lines.filter((l,i)=>!newSessions[i].date).length;
+  if(unparsed>0)alert(`${unparsed}개 줄은 날짜로 인식하지 못해 비워뒀습니다. 표에서 직접 채워주세요.`);
+}
 function removeLastSession(){
   if(state.sessions.length<=1){alert('최소 1개의 Day는 있어야 합니다.');return;}
   const i=state.sessions.length-1;
@@ -1313,6 +1378,28 @@ function addHour(){
   renderHourTimeInputs();
   if(state.selectedSession!==null)renderHourGrid();
   buildHourOptionSelects();
+}
+
+function bulkApplyHours(){
+  const ta=document.getElementById('bulk-hours-input');
+  const lines=ta.value.split('\n').map(s=>s.trim()).filter(s=>s.length>0);
+  if(lines.length===0){alert('시간을 한 줄에 하나씩 입력해 주세요.');return;}
+  const newHours=lines.map((line,i)=>({label:`Hour ${i+1}`,time:line}));
+  const hasDataBeyond=Object.values(state.attendance||{}).some(r=>
+    Object.values(r||{}).some(sr=>sr&&Object.keys(sr).some(hi=>parseInt(hi)>=newHours.length))
+  );
+  const msg=hasDataBeyond
+    ? `⚠️ 지금 있는 Hour 목록(${state.hours.length}개)을 붙여넣은 ${newHours.length}개로 완전히 교체합니다.\n일부 Hour에는 이미 출석 기록이 있습니다 — 시트의 기록 자체는 남지만, 화면에는 더 이상 표시되지 않습니다.\n계속할까요?`
+    : `지금 있는 Hour 목록(${state.hours.length}개)을 붙여넣은 ${newHours.length}개로 교체할까요?`;
+  if(!confirm(msg))return;
+  state.hours=newHours;
+  sv('att_hours',state.hours);
+  state.selectedHour=null;
+  document.getElementById('qr-section').style.display='none';
+  renderHourTimeInputs();
+  if(state.selectedSession!==null)renderHourGrid();
+  buildHourOptionSelects();
+  ta.value='';
 }
 function removeLastHour(){
   if(state.hours.length<=1){alert('최소 1개의 Hour는 있어야 합니다.');return;}
