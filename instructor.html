@@ -295,6 +295,7 @@
   <!-- Records Tab -->
   <div id="panel-records" class="panel">
     <div class="stats-row" id="stats-row"></div>
+    <div id="fp-warning-banner" style="display:none;margin-bottom:14px;padding:10px 12px;background:var(--amber-bg);border:1px solid var(--amber-border);border-radius:var(--radius);font-size:12px;font-family:monospace;color:var(--amber);"></div>
     <div class="filter-bar">
       <label style="font-family:monospace;font-size:11px;color:var(--text-faint);">View:</label>
       <select id="filter-session" onchange="renderRecords()">
@@ -1563,11 +1564,38 @@ function buildFilterOptions(){
   if([...sel.options].some(o=>o.value===cur))sel.value=cur;
 }
 
+// ── Device fingerprint analysis ────────────────────────────────────────────────
+// A best-effort signal, not proof — a genuinely shared/lab computer or a
+// family sharing one phone could also produce this. Use it as a prompt to
+// look closer, not as automatic evidence of academic misconduct.
+function renderFingerprintWarning(attendance){
+  const banner=document.getElementById('fp-warning-banner');
+  if(!banner)return;
+  const fpToNames={};
+  Object.keys(attendance).forEach(name=>{
+    const rec=attendance[name];
+    Object.values(rec).forEach(sr=>{
+      Object.values(sr||{}).forEach(r=>{
+        if(r&&r.fp){
+          if(!fpToNames[r.fp])fpToNames[r.fp]=new Set();
+          fpToNames[r.fp].add(name);
+        }
+      });
+    });
+  });
+  const groups=Object.values(fpToNames).filter(set=>set.size>1).map(set=>Array.from(set));
+  if(groups.length===0){banner.style.display='none';return;}
+  banner.style.display='block';
+  banner.innerHTML='⚠️ 같은 기기로 보이는 서로 다른 이름이 있습니다 (참고용 — 오탐 가능): '+
+    groups.map(g=>g.map(n=>escapeHtml(n)).join(' ↔ ')).join(' · ');
+}
+
 function renderRecordsFromData(attendance){
   state.attendance=attendance;
   buildFilterOptions();
   buildManualSessionOptions();
   buildHourOptionSelects();
+  renderFingerprintWarning(attendance);
   const fs=document.getElementById('filter-session').value;
   const students=Object.keys(attendance).sort();
   let totalCI=0,totalPos=0;
@@ -1931,12 +1959,24 @@ function openDetailPanel(name){
   const pct=pos>0?Math.round(tot/pos*100):0;
   const col=pct<75?'var(--red)':pct<100?'var(--amber)':'var(--green)';
 
+  // Collect this student's device fingerprints across all their check-ins —
+  // more than one distinct fingerprint could mean a different device was
+  // used at some point (could be innocent — new phone, borrowed charger's
+  // browser — but worth a glance if it also lines up with other concerns).
+  const fps=new Set();
+  state.sessions.forEach((_,si)=>{
+    Object.values(rec[si]||{}).forEach(r=>{ if(r&&r.fp) fps.add(r.fp); });
+  });
+  const fpWarning=fps.size>1
+    ? `<div style="margin-top:6px;font-size:11px;color:var(--amber);font-family:monospace;">⚠️ 서로 다른 기기 지문 ${fps.size}개가 발견되었습니다 (참고용 — 오탐 가능)</div>`
+    : '';
+
   document.getElementById('detail-name').innerHTML=`
     <span id="detail-name-text">👤 ${name}</span>
     <button class="btn btn-sm" style="margin-left:10px;font-size:11px;" onclick="startRenameStudent('${name.replace(/'/g,"\\'")}')">이름 수정</button>
     <button class="btn btn-sm btn-danger" style="margin-left:6px;font-size:11px;" onclick="deleteStudentRecords('${name.replace(/'/g,"\\'")}')">🗑 기록 삭제</button>`;
   document.getElementById('detail-stats').innerHTML=
-    `출석 ${tot}/${pos}시간 &nbsp;·&nbsp; <span style="color:${col};font-weight:500;">${pct}%</span>`;
+    `출석 ${tot}/${pos}시간 &nbsp;·&nbsp; <span style="color:${col};font-weight:500;">${pct}%</span>`+fpWarning;
 
   const grid=document.getElementById('detail-grid');
   grid.innerHTML=state.sessions.map((s,si)=>{
@@ -1946,9 +1986,10 @@ function openDetailPanel(name){
     const dateStr=s.date?fmtDate(s.date):'날짜 미정';
     const hourRows=state.hours.map((h,hi)=>{
       const r=sr[hi];
+      const fpBadge=r&&r.fp?`<span style="font-family:monospace;font-size:9px;color:var(--text-faint);margin-left:6px;" title="기기 지문(참고용): ${r.fp}">${r.fp}</span>`:'';
       return `<div class="ds-hour${r?' present':''}">
         <span>${h.time}</span>
-        <span>${r?'✓ '+r.time:'결석'}</span>
+        <span>${r?'✓ '+r.time:'결석'}${fpBadge}</span>
       </div>`;
     }).join('');
     return `<div class="detail-session ${cls}">

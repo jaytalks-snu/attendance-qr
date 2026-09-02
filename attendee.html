@@ -338,6 +338,62 @@ function showSyncStatus(msg,color){
   el.textContent=msg;
 }
 
+// ── Device fingerprint ────────────────────────────────────────────────────────
+// A best-effort, non-invasive signal for spotting suspicious patterns
+// (e.g. one physical device checking in under several different names) —
+// NOT a reliable unique ID. Combines a few browser/device characteristics
+// into a short stable string; recomputed fresh each time it's needed rather
+// than cached in localStorage, since it should reflect this browser's actual
+// current characteristics, not a value that clearing local data could fake.
+function computeDeviceFingerprint(){
+  try{
+    const parts=[];
+    parts.push(navigator.userAgent||'');
+    parts.push(navigator.language||'');
+    parts.push(screen.width+'x'+screen.height);
+    parts.push(String(screen.colorDepth||''));
+    parts.push(String(window.devicePixelRatio||''));
+    try{ parts.push(Intl.DateTimeFormat().resolvedOptions().timeZone||''); }catch(e){}
+    parts.push(String(new Date().getTimezoneOffset()));
+    parts.push(String(navigator.hardwareConcurrency||''));
+    try{
+      const canvas=document.createElement('canvas');
+      canvas.width=200;canvas.height=50;
+      const ctx=canvas.getContext('2d');
+      ctx.textBaseline='top';
+      ctx.font='14px Arial';
+      ctx.fillStyle='#f60';
+      ctx.fillRect(0,0,100,20);
+      ctx.fillStyle='#069';
+      ctx.fillText('fp-check-🎓',2,15);
+      parts.push(canvas.toDataURL());
+    }catch(e){ parts.push('canvas-err'); }
+    try{
+      const glCanvas=document.createElement('canvas');
+      const gl=glCanvas.getContext('webgl')||glCanvas.getContext('experimental-webgl');
+      if(gl){
+        const dbg=gl.getExtension('WEBGL_debug_renderer_info');
+        if(dbg){
+          parts.push(gl.getParameter(dbg.UNMASKED_VENDOR_WEBGL)||'');
+          parts.push(gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL)||'');
+        }
+      }
+    }catch(e){ parts.push('webgl-err'); }
+
+    const raw=parts.join('||');
+    let hash=0;
+    for(let i=0;i<raw.length;i++){ hash=((hash<<5)-hash+raw.charCodeAt(i))|0; }
+    return 'fp_'+Math.abs(hash).toString(36);
+  }catch(e){
+    return 'fp_unknown';
+  }
+}
+let cachedFingerprint=null;
+function getDeviceFingerprint(){
+  if(!cachedFingerprint) cachedFingerprint=computeDeviceFingerprint();
+  return cachedFingerprint;
+}
+
 function sendToSheet(payload,courseId){
   courseId=courseId||getActiveCourseId();
   const url=getScriptURL(courseId);
@@ -384,6 +440,7 @@ function sendToSheet(payload,courseId){
     courseTitle:  payload.courseTitle  ||'',
     courseNumber: payload.courseNumber ||'',
     teacherName:  payload.teacherName  ||'',
+    fingerprint:  getDeviceFingerprint(),
   },getSecretKey(courseId))+'&callback='+cbName;
   document.head.appendChild(script);
   showSyncStatus('Connecting to: '+url.slice(0,60)+'…');
