@@ -424,12 +424,24 @@ function processCheckIn(raw){
     setLastUsedName(name); // remember as the suggested default for the NEXT brand-new course
   }
 
-  // Apply any pending name correction from THIS course's instructor — scoped
-  // strictly to this course's lock and this course's local records.
+  // Apply any pending name correction(s) from THIS course's instructor —
+  // scoped strictly to this course's lock and this course's local records.
+  // Follows the FULL chain (A→B→C→…) in one pass, not just one hop — a
+  // student renamed twice before ever rescanning should still land on the
+  // final name in a single scan, with every consumed hop cleared from the
+  // instructor's pending list, not just the first one.
   if(token.renames&&typeof token.renames==='object'){
     const currentLocked=getLockedName(courseId);
     if(currentLocked&&token.renames[currentLocked]){
-      const newName=token.renames[currentLocked];
+      const consumedOldNames=[];
+      let newName=currentLocked;
+      let hops=0;
+      while(token.renames[newName]&&!consumedOldNames.includes(newName)&&hops<10){
+        consumedOldNames.push(newName);
+        newName=token.renames[newName];
+        hops++;
+      }
+
       const course=getCourse(courseId);
       const recs=course.records||{};
       if(recs[currentLocked]){
@@ -438,10 +450,10 @@ function processCheckIn(raw){
           recs[newName][si]=recs[newName][si]||{};
           Object.assign(recs[newName][si],recs[currentLocked][si]);
         });
-        delete recs[currentLocked];
+        if(currentLocked!==newName) delete recs[currentLocked];
       }
       saveCourse(courseId,{records:recs,lockedName:newName});
-      name=newName; // use new name for the rest of check-in
+      name=newName; // use new (fully-resolved) name for the rest of check-in
       // Also update the device-wide "last used name" suggestion — otherwise
       // the NEXT brand-new course this student checks into would still be
       // pre-filled with the old, now-corrected name.
@@ -449,18 +461,21 @@ function processCheckIn(raw){
       showAutoResult('warn','✏️',`이름이 "${currentLocked}"에서 "${newName}"으로 수정되었습니다.`);
       renderNameCard(courseId);
 
-      // Delete from Renames sheet so teacher banner disappears
-      const cbName='_dr'+Date.now();
-      const script=document.createElement('script');
-      const timer=setTimeout(()=>{delete window[cbName];script.remove();},10000);
-      window[cbName]=function(){clearTimeout(timer);delete window[cbName];script.remove();};
-      script.src=buildStudentURL(courseId,{action:'delete_rename',oldName:currentLocked},getSecretKey(courseId))+'&callback='+cbName;
-      document.head.appendChild(script);
+      // Delete EVERY hop consumed from the Renames sheet — not just the
+      // first — so the instructor's "pending" banner fully clears in one go.
+      consumedOldNames.forEach(oldN=>{
+        const cbName='_dr'+Date.now()+Math.random().toString(36).slice(2,8);
+        const script=document.createElement('script');
+        const timer=setTimeout(()=>{delete window[cbName];script.remove();},10000);
+        window[cbName]=function(){clearTimeout(timer);delete window[cbName];script.remove();};
+        script.src=buildStudentURL(courseId,{action:'delete_rename',oldName:oldN},getSecretKey(courseId))+'&callback='+cbName;
+        document.head.appendChild(script);
+      });
 
       // Also notify via BroadcastChannel (same device fallback)
       try{new BroadcastChannel('att_sync').postMessage({type:'rename_applied',oldName:currentLocked,newName});}catch(e){}
       const applied=ld('att_renames_applied',{});
-      applied[currentLocked]=Date.now();
+      consumedOldNames.forEach(oldN=>{applied[oldN]=Date.now();});
       sv('att_renames_applied',applied);
     }
   }
