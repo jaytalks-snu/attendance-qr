@@ -829,9 +829,15 @@ function initApp(){
   updateProfileMetaFromState();
 
   // Always land on a known, clean tab after logging in — whichever tab was
-  // active before switching profiles is not a reliable "current" tab for a
-  // newly-logged-in instructor.
-  switchTab('qr');
+  // active before switching profiles is leftover DOM state from a DIFFERENT
+  // instructor's session, not a real "the user just navigated away from
+  // Settings" event. Reset directly rather than via switchTab(), which would
+  // (wrongly) treat that leftover state as a reason to auto-save.
+  TABS.forEach((t,i)=>{
+    document.querySelectorAll('.tab')[i].classList.toggle('active',t==='qr');
+    document.getElementById('panel-'+t).classList.toggle('active',t==='qr');
+  });
+  updateRenameBanner();
 }
 
 function saveCourseInfo(){
