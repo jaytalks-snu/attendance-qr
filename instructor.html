@@ -29,6 +29,7 @@
   .login-card p { font-size: 12px; color: var(--text-muted); font-family: monospace; margin-bottom: 20px; }
   .login-pw { width: 100%; padding: 9px 12px; border: 1px solid var(--border-strong); border-radius: var(--radius); font-size: 14px; background: var(--surface); color: var(--text); font-family: monospace; letter-spacing: 0.15em; margin-bottom: 10px; text-align: center; }
   .login-pw:focus { outline: none; border-color: var(--text); }
+  .login-pw:disabled { opacity: 0.5; cursor: wait; }
   .login-error { font-size: 12px; color: var(--red); font-family: monospace; margin-bottom: 10px; display: none; }
 
   /* Profile picker (multiple instructors sharing one device) */
@@ -239,7 +240,7 @@
     </div>
     <span class="header-tag">Instructor</span>
     <button class="btn btn-sm" id="test-mode-btn" onclick="toggleTestMode()" style="margin-left:4px;">🧪 Test</button>
-    <button class="btn btn-sm" onclick="logout()">🔀 강사 전환</button>
+    <button class="btn btn-sm" onclick="logout()">🚪 로그아웃</button>
   </header>
 
   <div id="test-mode-banner" class="test-banner">
@@ -463,7 +464,7 @@
       <div class="settings-note" style="margin-bottom:10px;">Paste your Apps Script Web App URL here to sync attendance to Google Sheets automatically.</div>
       <div class="field-group">
         <div class="field-label">Apps Script Web App URL</div>
-        <input type="text" id="script-url" placeholder="https://script.google.com/macros/s/…/exec" style="width:100%;font-size:11px;" oninput="saveScriptURL()">
+        <input type="text" id="script-url" placeholder="https://script.google.com/macros/s/…/exec" style="width:100%;font-size:11px;" onchange="saveScriptURL()">
       </div>
       <div class="field-group">
         <div class="field-label">Google Sheet URL (for direct access)</div>
@@ -539,35 +540,12 @@ function ld(k,d){try{const v=localStorage.getItem(k);return v!==null?JSON.parse(
 function sv(k,v){localStorage.setItem(k,JSON.stringify(v));}
 
 // ── Multi-instructor profiles (shared desktop support) ────────────────────────
-// Everything below keeps each instructor's course/session/sheet data fully
-// separate on a shared computer, while every OTHER function in this file keeps
-// reading/writing the same plain keys (att_pw, att_sessions, ...) as before —
-// those plain keys are just "the currently active profile's working copy",
-// auto-mirrored into that profile's own bundle on every write.
-const PROFILE_KEYS = ['att_pw','att_secret_key','att_sheet_url','att_test_mode',
-  'classroom_lat','classroom_lng','att_course','att_course_pub','att_hours',
-  'att_records','att_renames','att_renames_applied','att_sessions','att_token'];
-
-const _rawSetItem = Storage.prototype.setItem.bind(localStorage);
-const _rawGetItem = Storage.prototype.getItem.bind(localStorage);
-const _rawRemoveItem = Storage.prototype.removeItem.bind(localStorage);
-
-// Auto-mirror every write to a PROFILE_KEY into the active profile's bundle,
-// so switching profiles never loses data and nothing needs to change at each
-// of the many call sites elsewhere in this file that already call setItem/sv.
-localStorage.setItem = function(key, value){
-  _rawSetItem(key, value);
-  if(PROFILE_KEYS.includes(key)){
-    const url = _rawGetItem('att_script_url');
-    if(url){
-      let all; try{ all = JSON.parse(_rawGetItem('att_profile_data')||'{}'); }catch{ all={}; }
-      if(!all[url]) all[url]={};
-      all[url][key]=value;
-      _rawSetItem('att_profile_data', JSON.stringify(all));
-    }
-  }
-};
-
+// This browser only remembers a lightweight LIST of instructors it has seen
+// (url + a display label) — never their course settings. Every time a
+// profile is picked, course info / Sessions / Secret Key are fetched fresh
+// from that course's own Google Sheet before the password screen even
+// accepts input. There is no local bundle to keep in sync, so there is
+// nothing that can go stale or leak between profiles on a shared computer.
 function getProfiles(){ return ld('att_profiles',{}); } // {scriptUrl: {nickname, courseTitle, teacherName}}
 function saveProfileMeta(url, patch){
   const all=getProfiles();
@@ -575,20 +553,10 @@ function saveProfileMeta(url, patch){
   sv('att_profiles',all);
 }
 function updateProfileMetaFromState(){
-  const url=_rawGetItem('att_script_url');
+  const url=localStorage.getItem('att_script_url');
   if(!url)return;
   saveProfileMeta(url,{courseTitle:state.courseTitle||'',teacherName:state.teacherName||''});
   if(document.getElementById('profile-picker'))renderProfileList();
-}
-
-// Loads a profile's saved bundle into the live keys this app actually reads from.
-function loadProfileIntoStorage(url){
-  let all; try{ all=JSON.parse(_rawGetItem('att_profile_data')||'{}'); }catch{ all={}; }
-  const bundle=all[url]||{};
-  PROFILE_KEYS.forEach(k=>{
-    if(bundle[k]!==undefined) _rawSetItem(k,bundle[k]); else _rawRemoveItem(k);
-  });
-  _rawSetItem('att_script_url',url);
 }
 
 function registerProfile(url){
@@ -647,12 +615,9 @@ function editProfileNickname(url){
 function deleteProfile(url){
   const profiles=getProfiles();
   const label=profiles[url]?.nickname||profiles[url]?.courseTitle||'이 강사';
-  if(!confirm(`"${label}" 정보를 이 컴퓨터에서 삭제할까요?\n(구글 시트의 데이터는 삭제되지 않습니다.)`))return;
+  if(!confirm(`"${label}" 정보를 이 컴퓨터의 목록에서 삭제할까요?\n(구글 시트의 데이터는 삭제되지 않습니다.)`))return;
   delete profiles[url];
   sv('att_profiles',profiles);
-  let all; try{ all=JSON.parse(_rawGetItem('att_profile_data')||'{}'); }catch{ all={}; }
-  delete all[url];
-  _rawSetItem('att_profile_data',JSON.stringify(all));
   renderProfileList();
 }
 
@@ -665,31 +630,87 @@ function showAddProfileForm(){
 function confirmAddProfile(){
   const url=document.getElementById('new-profile-url').value.trim();
   if(!url){alert('Apps Script 웹앱 URL을 입력해 주세요.');return;}
+  if(!/^https:\/\/script\.google\.com\/macros\/s\/.+\/exec$/.test(url)){
+    alert('이 주소는 Apps Script 웹앱 URL 형식이 아닙니다.\nhttps://script.google.com/macros/s/…/exec 형태의 주소를 입력해 주세요.');
+    return;
+  }
   registerProfile(url);
   pickProfile(url);
 }
 
-let pendingFreshProfile=null; // set by pickProfile when this device has never loaded this profile before
+// The password fetched fresh for whichever profile is currently on the
+// password screen — never persisted, never trusted from a previous session.
+// null while settings are still loading (password input is disabled then).
+let expectedPassword=null;
 
 function pickProfile(url){
-  // Detect "never used on this device before" BEFORE loadProfileIntoStorage
-  // touches anything — an instructor who set course info/Sessions up from
-  // home should see it appear automatically the first time they log into
-  // this same profile on the classroom computer, not just a blank default.
-  let bundleData; try{ bundleData=JSON.parse(_rawGetItem('att_profile_data')||'{}'); }catch{ bundleData={}; }
-  pendingFreshProfile=bundleData[url]?null:url;
-
-  loadProfileIntoStorage(url);
-  const profiles=getProfiles();
-  const p=profiles[url]||{};
-  const label=[p.nickname,[p.courseTitle,p.teacherName].filter(Boolean).join(' · ')].filter(Boolean).join(' — ');
-  document.getElementById('login-profile-label').textContent=label||'Enter your password to continue';
+  localStorage.setItem('att_script_url',url);
   document.getElementById('picker-back-btn').style.display='block';
   document.getElementById('profile-picker').style.display='none';
   document.getElementById('login-screen').style.display='flex';
   document.getElementById('pw-input').value='';
   document.getElementById('login-error').style.display='none';
-  document.getElementById('pw-input').focus();
+
+  const profiles=getProfiles();
+  const p=profiles[url]||{};
+  const cachedLabel=[p.nickname,[p.courseTitle,p.teacherName].filter(Boolean).join(' · ')].filter(Boolean).join(' — ');
+  document.getElementById('login-profile-label').textContent=(cachedLabel||'설정을 불러오는 중…')+' · 불러오는 중…';
+
+  expectedPassword=null;
+  const pwInput=document.getElementById('pw-input');
+  pwInput.disabled=true;
+  fetchProfileSettings(url,cachedLabel);
+}
+
+// Always pulls this course's current settings straight from its Sheet before
+// the password screen accepts any input — course title, Sessions, Secret
+// Key, and the REAL current password all come from here, fresh, every time.
+function fetchProfileSettings(url,fallbackLabel){
+  const cbName='_fp'+Date.now();
+  const script=document.createElement('script');
+  const timer=setTimeout(()=>{
+    delete window[cbName];script.remove();
+    settingsFetchFailed(fallbackLabel);
+  },15000);
+  window[cbName]=function(data){
+    clearTimeout(timer);delete window[cbName];script.remove();
+    if(!data||data.status!=='ok'){ settingsFetchFailed(fallbackLabel); return; }
+    const s=data.settings||{};
+    expectedPassword=s.password||'teacher123';
+
+    state.courseTitle=s.courseTitle||''; state.courseNumber=s.courseNumber||''; state.teacherName=s.teacherName||'';
+    sv('att_course',{title:state.courseTitle,number:state.courseNumber,teacher:state.teacherName});
+    try{ sv('att_sessions', s.sessions?JSON.parse(s.sessions):DEFAULT_SESSIONS); }catch{ sv('att_sessions',DEFAULT_SESSIONS); }
+    try{ sv('att_hours', s.hours?JSON.parse(s.hours):DEFAULT_HOURS); }catch{ sv('att_hours',DEFAULT_HOURS); }
+    localStorage.setItem('att_secret_key', s.secretKey||'');
+    localStorage.setItem('att_sheet_url', s.sheetUrl||'');
+    if(s.classroomLat&&s.classroomLng){
+      localStorage.setItem('classroom_lat',s.classroomLat);
+      localStorage.setItem('classroom_lng',s.classroomLng);
+    }else{
+      localStorage.removeItem('classroom_lat');
+      localStorage.removeItem('classroom_lng');
+    }
+
+    updateProfileMetaFromState();
+    const profiles=getProfiles();
+    const p=profiles[url]||{};
+    const label=[p.nickname,[state.courseTitle,state.teacherName].filter(Boolean).join(' · ')].filter(Boolean).join(' — ');
+    document.getElementById('login-profile-label').textContent=label||'Enter your password to continue';
+    const pwInput=document.getElementById('pw-input');
+    pwInput.disabled=false;
+    pwInput.focus();
+  };
+  script.onerror=function(){ clearTimeout(timer);delete window[cbName];script.remove(); settingsFetchFailed(fallbackLabel); };
+  script.src=buildURL(url,{action:'get_settings'})+'&callback='+cbName;
+  document.head.appendChild(script);
+}
+
+function settingsFetchFailed(fallbackLabel){
+  document.getElementById('login-profile-label').textContent=
+    '⚠️ 시트에 연결하지 못했습니다 — 인터넷 연결을 확인하고 "← 다른 강사 선택"으로 돌아가 다시 시도해 주세요.';
+  // Password input stays disabled: without a live password to check against,
+  // logging in would mean guessing, which defeats the point of a password.
 }
 
 function showProfilePicker(){
@@ -703,29 +724,28 @@ function showProfilePicker(){
 }
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
-function getPassword(){return localStorage.getItem('att_pw')||'teacher123';}
+function getPassword(){return expectedPassword||localStorage.getItem('att_pw')||'teacher123';}
 function doLogin(){
-  if(document.getElementById('pw-input').value===getPassword()){
+  if(expectedPassword===null){
+    alert('아직 시트에서 설정을 불러오는 중입니다. 잠시 후 다시 시도해 주세요.');
+    return;
+  }
+  if(document.getElementById('pw-input').value===expectedPassword){
+    localStorage.setItem('att_pw',expectedPassword); // kept only for this tab's own reference (e.g. changePassword)
     document.getElementById('login-screen').style.display='none';
     document.getElementById('app').style.display='block';
     initApp();
-    if(pendingFreshProfile){
-      const url=pendingFreshProfile;
-      pendingFreshProfile=null;
-      // First time this profile is used on this device — automatically pull
-      // whatever course info/Sessions the instructor already set up
-      // elsewhere (e.g. from home), instead of showing an empty default.
-      if((localStorage.getItem('att_script_url')||'')===url){
-        showToast('이 기기는 처음이라 시트에서 설정을 불러오는 중…');
-        loadSettingsFromSheet(true);
-      }
-    }
   }else{
     document.getElementById('login-error').style.display='block';
     document.getElementById('pw-input').value='';
   }
 }
 function logout(){
+  const onSessions=TABS[Array.from(document.querySelectorAll('.tab')).findIndex(el=>el.classList.contains('active'))]==='sessions';
+  if(onSessions&&(localStorage.getItem('att_script_url')||'')){
+    saveSettingsToSheet('sessions-sync-msg',true);
+  }
+  expectedPassword=null;
   document.getElementById('app').style.display='none';
   showProfilePicker();
 }
@@ -737,17 +757,45 @@ function changePassword(){
   if(!np){msg.style.color='var(--red)';msg.textContent='Cannot be empty.';return;}
   if(np!==cp){msg.style.color='var(--red)';msg.textContent='Passwords do not match.';return;}
   localStorage.setItem('att_pw',np);
-  msg.style.color='var(--green)';msg.textContent='Password saved.';
+  expectedPassword=np; // keep this tab's own comparison in sync immediately
+  // Push to the Sheet right away — nothing is cached locally across sessions
+  // anymore, so a password change that isn't saved to the Sheet would
+  // otherwise be invisible the next time anyone (including this instructor)
+  // logs in from anywhere.
+  saveSettingsToSheet();
+  msg.style.color='var(--green)';msg.textContent='Password saved to Sheet.';
   document.getElementById('new-pw').value='';document.getElementById('confirm-pw').value='';
 }
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 function initApp(){
+  // This page instance is reused across profile switches on a shared
+  // computer — nothing visually left over from a DIFFERENT instructor's
+  // session should still be showing. Reset the transient, in-memory bits
+  // that a plain localStorage swap doesn't touch on its own.
+  state.selectedSession=null; state.selectedHour=null;
+  document.getElementById('hour-section').style.display='none';
+  document.getElementById('qr-section').style.display='none';
+  if(state.timerInterval){clearInterval(state.timerInterval);state.timerInterval=null;}
+  state.qrObj=null;
+  const diagOut=document.getElementById('diag-output');
+  if(diagOut){diagOut.style.display='none';diagOut.innerHTML='';}
+  const detailPanel=document.getElementById('detail-panel');
+  if(detailPanel)detailPanel.classList.remove('open');
+  const manualCard=document.getElementById('manual-att-card');
+  if(manualCard)manualCard.style.display='none';
+  // Testing mode (geofencing off) is a per-session safety toggle, never a
+  // saved course setting — always start OFF so a previous instructor's test
+  // session can never carry over as a real, unenforced-geofence class.
+  localStorage.setItem('att_test_mode','0');
+
   const course=ld('att_course',{});
   state.courseTitle=course.title||''; state.courseNumber=course.number||''; state.teacherName=course.teacher||'';
   state.sessions=ld('att_sessions',DEFAULT_SESSIONS);
   state.hours=ld('att_hours',DEFAULT_HOURS);
   state.attendance=ld('att_records',{});
+  state.classroomLat=null; state.classroomLng=null;
+  document.getElementById('teacher-geo-info').textContent='';
   const lat=parseFloat(localStorage.getItem('classroom_lat'));
   const lng=parseFloat(localStorage.getItem('classroom_lng'));
   if(!isNaN(lat)&&!isNaN(lng)){
@@ -768,10 +816,22 @@ function initApp(){
   buildHourOptionSelects();
   applyTestMode();
 
+  // Refresh Records unconditionally (not just when that tab is clicked) —
+  // otherwise, if the Records tab happened to be showing when the instructor
+  // switched profiles, it would keep displaying the PREVIOUS instructor's
+  // table until manually clicked away and back.
+  renderRecords();
+  if(typeof refreshDashboard==='function')refreshDashboard();
+
   // Load renames from Google Sheet on startup (survives browser cache clears)
   loadRenamesFromSheet();
   startRenamesPoll();
   updateProfileMetaFromState();
+
+  // Always land on a known, clean tab after logging in — whichever tab was
+  // active before switching profiles is not a reliable "current" tab for a
+  // newly-logged-in instructor.
+  switchTab('qr');
 }
 
 function saveCourseInfo(){
@@ -935,31 +995,34 @@ function applyTestMode(){
 function saveScriptURL(){
   const url=document.getElementById('script-url').value.trim();
   if(!url)return;
-  // Changing the script URL here means "switch to this instructor's backend" —
-  // route it through the same profile machinery the picker uses, so this
-  // never accidentally mixes this profile's data into a different one's bundle.
+
+  const current=localStorage.getItem('att_script_url')||'';
+  if(url===current)return; // unchanged — nothing to do, and definitely nothing to switch
+
+  // Only a genuinely complete, correctly-formatted Apps Script URL should
+  // ever trigger a profile switch. This field previously fired on every
+  // keystroke (oninput), so a URL being edited/retyped would briefly be an
+  // incomplete string that looked like "a different, nonexistent profile" —
+  // wiping this profile's Secret Key / Sheet URL along the way. It's now
+  // onchange (fires once, when editing is done) as a second layer of safety.
+  if(!/^https:\/\/script\.google\.com\/macros\/s\/.+\/exec$/.test(url)){
+    const msg=document.getElementById('script-url-msg');
+    msg.style.display='block';
+    msg.style.color='var(--red)';
+    msg.textContent='이 주소는 Apps Script 웹앱 URL 형식이 아닙니다 (https://script.google.com/macros/s/…/exec). 저장하지 않았습니다.';
+    return;
+  }
+
+  // Changing the script URL here means "switch to this instructor's backend".
+  // Register it if new, point at it, then pull its settings fresh from the
+  // Sheet — the same single source of truth every login already uses.
   registerProfile(url);
-  loadProfileIntoStorage(url);
-  state.sessions=ld('att_sessions',DEFAULT_SESSIONS);
-  state.hours=ld('att_hours',DEFAULT_HOURS);
-  state.attendance=ld('att_records',{});
-  const course=ld('att_course',{});
-  state.courseTitle=course.title||''; state.courseNumber=course.number||''; state.teacherName=course.teacher||'';
-  document.getElementById('course-title').value=state.courseTitle;
-  document.getElementById('course-number').value=state.courseNumber;
-  document.getElementById('teacher-name').value=state.teacherName;
-  document.getElementById('secret-key').value=getSecretKey();
-  const sheetUrl=localStorage.getItem('att_sheet_url')||'';
-  document.getElementById('sheet-url').value=sheetUrl;
-  const sheetBtn=document.getElementById('sheet-link-btn');
-  if(sheetBtn)sheetBtn.style.display=sheetUrl?'inline-flex':'none';
-  renderSessionsTable(); renderSessionChips(); renderHourTimeInputs(); buildHourOptionSelects();
-  updateHeader();
-  updateProfileMetaFromState();
-  const msg=document.getElementById('script-url-msg');
-  msg.style.display='block';
-  msg.style.color='var(--text-muted)';
-  msg.textContent='URL saved.';
+  localStorage.setItem('att_script_url',url);
+  state.selectedSession=null; state.selectedHour=null;
+  document.getElementById('hour-section').style.display='none';
+  document.getElementById('qr-section').style.display='none';
+  loadSettingsFromSheet(true);
+  renderRecords();
 }
 
 function saveSheetURL(){
