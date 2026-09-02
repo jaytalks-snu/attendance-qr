@@ -445,10 +445,15 @@ function sendToSheet(payload,courseId,attempt){
   const cbName='_ci'+Date.now()+Math.random().toString(36).slice(2,6);
   const script=document.createElement('script');
 
+  // The server doesn't respond until it's finished rewriting the whole
+  // Summary sheet after this check-in, which can take longer than a quick
+  // save alone — especially as a course accumulates more students/sessions.
+  // A short client timeout can give up before that legitimately finishes,
+  // showing a false "failed" even though the Sheet is actually fine.
   const timer=setTimeout(()=>{
     delete window[cbName];script.remove();
     handleSyncFailure(payload,courseId,attempt);
-  },15000);
+  },25000);
 
   window[cbName]=function(data){
     clearTimeout(timer);delete window[cbName];script.remove();
