@@ -741,9 +741,9 @@ function doLogin(){
   }
 }
 function logout(){
-  const onSessions=TABS[Array.from(document.querySelectorAll('.tab')).findIndex(el=>el.classList.contains('active'))]==='sessions';
-  if(onSessions&&(localStorage.getItem('att_script_url')||'')){
-    saveSettingsToSheet('sessions-sync-msg',true);
+  const leavingTab=TABS[Array.from(document.querySelectorAll('.tab')).findIndex(el=>el.classList.contains('active'))];
+  if((leavingTab==='sessions'||leavingTab==='settings')&&(localStorage.getItem('att_script_url')||'')){
+    saveSettingsToSheet(leavingTab==='sessions'?'sessions-sync-msg':'settings-sync-msg',true);
   }
   expectedPassword=null;
   document.getElementById('app').style.display='none';
@@ -1042,15 +1042,16 @@ function openGoogleSheet(){
 // Refresh dashboard when switching to Settings tab
 const TABS=['qr','records','sessions','settings'];
 function switchTab(tab){
-  const leavingSessions = TABS[Array.from(document.querySelectorAll('.tab')).findIndex(el=>el.classList.contains('active'))]==='sessions';
+  const leavingTab = TABS[Array.from(document.querySelectorAll('.tab')).findIndex(el=>el.classList.contains('active'))];
   TABS.forEach((t,i)=>{
     document.querySelectorAll('.tab')[i].classList.toggle('active',t===tab);
     document.getElementById('panel-'+t).classList.toggle('active',t===tab);
   });
-  // Sessions tab edits only live in this browser until pushed to the Sheet —
-  // save automatically on the way out so it's never accidentally left behind.
-  if(leavingSessions&&tab!=='sessions'&&(localStorage.getItem('att_script_url')||'')){
-    saveSettingsToSheet('sessions-sync-msg',true);
+  // Sessions AND Settings tab edits only live in this browser until pushed to
+  // the Sheet — nothing is cached locally across logins anymore, so save
+  // automatically on the way out of either tab, never left behind.
+  if((leavingTab==='sessions'||leavingTab==='settings')&&tab!==leavingTab&&(localStorage.getItem('att_script_url')||'')){
+    saveSettingsToSheet(leavingTab==='sessions'?'sessions-sync-msg':'settings-sync-msg',true);
   }
   if(tab==='records')renderRecords();
   if(tab==='qr')updateRenameBanner();
