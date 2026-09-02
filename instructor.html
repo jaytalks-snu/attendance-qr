@@ -784,6 +784,12 @@ function initApp(){
   if(detailPanel)detailPanel.classList.remove('open');
   const manualCard=document.getElementById('manual-att-card');
   if(manualCard)manualCard.style.display='none';
+  // Pending-rename info (att_renames) is course-specific but is stored as a
+  // plain key — clear it immediately so a PREVIOUS course's "rename pending"
+  // banner can never flash up here while THIS course's real data is still
+  // being fetched (loadRenamesFromSheet, below, is async).
+  sv('att_renames',{});
+  updateRenameBanner();
   // Testing mode (geofencing off) is a per-session safety toggle, never a
   // saved course setting — always start OFF so a previous instructor's test
   // session can never carry over as a real, unenforced-geofence class.
