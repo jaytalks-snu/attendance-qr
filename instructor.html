@@ -1148,7 +1148,7 @@ function saveSettingsToSheet(msgElId,alsoToast){
     clearTimeout(timer);delete window[cbName];script.remove();
     if(data&&data.status==='ok'){
       showSettingsMsg('✓ 구글 시트에 저장 완료','var(--green)',msgElId);
-      if(alsoToast)showToast('✓ Sessions 설정이 구글 시트에 저장되었습니다','var(--green)');
+      if(alsoToast)showToast('✓ 설정이 구글 시트에 저장되었습니다','var(--green)');
     }else{
       showSettingsMsg('오류: '+(data&&data.message||'알 수 없음'),'var(--red)',msgElId);
       if(alsoToast)showToast('❌ 저장 실패: '+(data&&data.message||'알 수 없음'),'var(--red)');
