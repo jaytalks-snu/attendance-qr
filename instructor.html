@@ -1154,9 +1154,16 @@ function runDiagnostic(){
       diagLog(lines,'  If students have checked in, make sure the sheet name is exactly: Attendance Log','var(--amber)');
     } else {
       diagLog(lines,`✓ Found ${students.length} student(s) in sheet`,'var(--green)');
-      diagLog(lines,'✓ Everything looks good! Switching to Records tab…','var(--green)');
-      setTimeout(()=>switchTab('records'),1500);
     }
+
+    // Step 6: also pull course info & Sessions/Hours from the Settings sheet —
+    // get_records above only checks attendance data, so without this step
+    // course title, instructor name, and the Day/Hour configuration never
+    // get synced even when everything else checks out.
+    diagLog(lines,'… Syncing course info & Sessions from Settings sheet');
+    loadSettingsFromSheet();
+    diagLog(lines,'✓ Everything looks good! Switching to Records tab…','var(--green)');
+    setTimeout(()=>switchTab('records'),1500);
   };
 
   script.onerror=function(){
