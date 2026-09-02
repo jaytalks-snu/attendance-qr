@@ -121,6 +121,7 @@
   <div class="section-label">My attendance — all sessions</div>
   <div class="card">
     <select id="history-course-select" onchange="onHistoryCourseChange(this.value)" style="display:none;width:100%;padding:8px 10px;margin-bottom:12px;border:1px solid var(--border-strong);border-radius:var(--radius);font-size:13px;font-family:'Georgia',serif;background:var(--surface);color:var(--text);"></select>
+    <div id="history-name-note" style="display:none;font-size:11px;font-family:monospace;color:var(--amber);background:var(--amber-bg);border:1px solid var(--amber-border);border-radius:var(--radius);padding:6px 10px;margin-bottom:10px;"></div>
     <div class="history-grid" id="history-grid"></div>
   </div>
 </main>
@@ -162,14 +163,33 @@ function setActiveCourseId(id){ if(id)localStorage.setItem('att_active_course',i
   const legacyUrl=localStorage.getItem('att_script_url');
   if(!legacyUrl)return;
   const course=ld('att_course_pub',{});
+  const legacyName=localStorage.getItem('att_student_name')||'';
   saveCourse(legacyUrl,{
     courseTitle:course.title||'', courseNumber:course.number||'', teacherName:course.teacher||'',
     secretKey:localStorage.getItem('att_secret_key')||'',
     sessions:ld('att_sessions',DEFAULT_SESSIONS),
     hours:ld('att_hours',DEFAULT_HOURS),
     records:ld('att_records',{}),
+    lockedName:legacyName,
   });
   setActiveCourseId(legacyUrl);
+})();
+
+// Backfill for devices that already have att_courses from an earlier version
+// of this page (one that shared a single name across all courses) — lock in
+// whichever name that course's own records were actually saved under, so a
+// later correction in one course still can't leak into another retroactively.
+(function backfillLockedNames(){
+  const all=getCourses();
+  let changed=false;
+  Object.keys(all).forEach(id=>{
+    const c=all[id];
+    if(c.lockedName)return; // already has its own lock — nothing to do
+    const namesInRecords=Object.keys(c.records||{});
+    c.lockedName = namesInRecords[0] || localStorage.getItem('att_student_name') || '';
+    changed=true;
+  });
+  if(changed) sv('att_courses',all);
 })();
 
 function getSessions(courseId){return getCourse(courseId||getActiveCourseId()).sessions||DEFAULT_SESSIONS;}
@@ -193,30 +213,49 @@ function renderCourseBanner(){
 }
 
 // ── Name persistence ──────────────────────────────────────────────────────────
-function getSavedName(){return localStorage.getItem('att_student_name')||'';}
-function setSavedName(n){localStorage.setItem('att_student_name',n);}
-function clearSavedName(){localStorage.removeItem('att_student_name');}
-function getCurrentName(){
-  const saved=getSavedName();if(saved)return saved;
+// Each course locks in whatever name the student used for its FIRST check-in
+// (course.lockedName) — a name correction the instructor makes in one course
+// never touches another course's already-locked name. att_student_name is
+// only "the last name used on this device" — a convenience default suggested
+// when starting a brand-new course for the first time, nothing more; it does
+// not drive any already-locked course.
+function getLastUsedName(){return localStorage.getItem('att_student_name')||'';}
+function setLastUsedName(n){localStorage.setItem('att_student_name',n);}
+// Back-compat aliases (same behavior, old names some code below still uses)
+function getSavedName(){return getLastUsedName();}
+function setSavedName(n){setLastUsedName(n);}
+
+function getLockedName(courseId){return getCourse(courseId).lockedName||'';}
+function lockName(courseId,name){saveCourse(courseId,{lockedName:name});}
+
+function getCurrentName(courseId){
+  const locked=courseId?getLockedName(courseId):'';
+  if(locked)return locked;
   const input=document.getElementById('student-name');
   return input?input.value.trim():'';
 }
-function renderNameCard(){
+// Which course's name is showing in the "Your name" card right now — whichever
+// course is currently relevant (a token being processed, or the last-active one).
+function relevantCourseId(){return (activeToken&&activeToken.scriptUrl)||getActiveCourseId();}
+
+function renderNameCard(courseId){
+  courseId=courseId||relevantCourseId();
   const card=document.getElementById('name-card');
-  const saved=getSavedName();
-  if(saved){
+  const locked=courseId?getLockedName(courseId):'';
+  if(locked){
     card.innerHTML=`
       <div class="name-display">
-        <span class="name-text">👤 ${saved}</span>
+        <span class="name-text">👤 ${escapeHtml(locked)}</span>
       </div>
       <div style="font-size:11px;font-family:monospace;color:var(--text-faint);margin-top:8px;">
         이름 변경이 필요하면 교사에게 문의하세요.
       </div>`;
   }else{
+    const suggestion=getLastUsedName();
     card.innerHTML=`
-      <input type="text" id="student-name" placeholder="성명을 입력하세요 (예: 홍길동)" autocomplete="name" oninput="onNameInput()" style="font-size:16px;padding:12px;">
+      <input type="text" id="student-name" placeholder="성명을 입력하세요 (예: 홍길동)" autocomplete="name" value="${escapeHtml(suggestion)}" oninput="onNameInput()" style="font-size:16px;padding:12px;">
       <div style="font-size:11px;font-family:monospace;color:var(--text-faint);margin-top:8px;">
-        정확하게 입력해 주세요. 한 번 저장되면 이후 변경할 수 없습니다.
+        정확하게 입력해 주세요. 이 과목에서는 한 번 저장되면 이후 변경할 수 없습니다.
       </div>`;
   }
   renderHistory();
@@ -247,8 +286,10 @@ function onNameInput(){
   }
 }
 function editName(){
-  previousName=getSavedName();
-  clearSavedName();
+  // NOTE: not wired to any visible button — per policy, only the instructor
+  // can correct a name once a course has locked one in. Left here only so it
+  // doesn't reference removed functions if something internal ever calls it.
+  previousName=getLastUsedName();
   document.getElementById('auto-result-box').className='result-box';
   document.getElementById('auto-checkin-btn').style.display='none';
   const syncEl=document.getElementById('sync-status');
@@ -346,8 +387,6 @@ function sendToSheet(payload,courseId){
 function showAutoResult(type,icon,msg){const el=document.getElementById('auto-result-box');el.className='result-box show '+type;el.innerHTML=`<span class="result-icon">${icon}</span>${msg}`;}
 
 function processCheckIn(raw){
-  let name=getCurrentName();
-  if(!name){showAutoResult('warn','✏️','Please enter your name before scanning.');return;}
   let token;
   try{token=JSON.parse(raw);}catch{showAutoResult('error','❌','Invalid check-in link. Please scan the QR code again.');return;}
   if(Date.now()-token.ts>63000){showAutoResult('error','⏰','QR code expired. Ask your teacher to refresh it.');return;}
@@ -355,6 +394,8 @@ function processCheckIn(raw){
   if(!token.scriptUrl){showAutoResult('error','❌','Unrecognised QR code.');return;}
 
   const courseId=token.scriptUrl;
+  let name=getCurrentName(courseId);
+  if(!name){showAutoResult('warn','✏️','Please enter your name before scanning.');return;}
 
   // Save/update this course's bundle FIRST — everything below (rename,
   // duplicate check, recording, sheet sync) reads from it via courseId.
@@ -369,40 +410,47 @@ function processCheckIn(raw){
   setActiveCourseId(courseId);
   renderCourseBanner();
 
-  // Apply any pending name corrections from teacher — BEFORE proceeding with check-in
+  // First-ever check-in for THIS course — lock the name in, scoped to this
+  // course only. A correction made later in a different course never reaches
+  // in and changes this lock; only this course's own instructor can.
+  if(!getLockedName(courseId)){
+    lockName(courseId,name);
+    setLastUsedName(name); // remember as the suggested default for the NEXT brand-new course
+  }
+
+  // Apply any pending name correction from THIS course's instructor — scoped
+  // strictly to this course's lock and this course's local records.
   if(token.renames&&typeof token.renames==='object'){
-    const currentSaved=getSavedName();
-    if(currentSaved&&token.renames[currentSaved]){
-      const newName=token.renames[currentSaved];
-      // Move local records (within this course only) to the new name
+    const currentLocked=getLockedName(courseId);
+    if(currentLocked&&token.renames[currentLocked]){
+      const newName=token.renames[currentLocked];
       const course=getCourse(courseId);
       const recs=course.records||{};
-      if(recs[currentSaved]){
+      if(recs[currentLocked]){
         recs[newName]=recs[newName]||{};
-        Object.keys(recs[currentSaved]).forEach(si=>{
+        Object.keys(recs[currentLocked]).forEach(si=>{
           recs[newName][si]=recs[newName][si]||{};
-          Object.assign(recs[newName][si],recs[currentSaved][si]);
+          Object.assign(recs[newName][si],recs[currentLocked][si]);
         });
-        delete recs[currentSaved];
-        saveCourse(courseId,{records:recs});
+        delete recs[currentLocked];
       }
-      setSavedName(newName);
+      saveCourse(courseId,{records:recs,lockedName:newName});
       name=newName; // use new name for the rest of check-in
-      showAutoResult('warn','✏️',`이름이 "${currentSaved}"에서 "${newName}"으로 수정되었습니다.`);
-      renderNameCard();
+      showAutoResult('warn','✏️',`이름이 "${currentLocked}"에서 "${newName}"으로 수정되었습니다.`);
+      renderNameCard(courseId);
 
       // Delete from Renames sheet so teacher banner disappears
       const cbName='_dr'+Date.now();
       const script=document.createElement('script');
       const timer=setTimeout(()=>{delete window[cbName];script.remove();},10000);
       window[cbName]=function(){clearTimeout(timer);delete window[cbName];script.remove();};
-      script.src=buildStudentURL(courseId,{action:'delete_rename',oldName:currentSaved},getSecretKey(courseId))+'&callback='+cbName;
+      script.src=buildStudentURL(courseId,{action:'delete_rename',oldName:currentLocked},getSecretKey(courseId))+'&callback='+cbName;
       document.head.appendChild(script);
 
       // Also notify via BroadcastChannel (same device fallback)
-      try{new BroadcastChannel('att_sync').postMessage({type:'rename_applied',oldName:currentSaved,newName});}catch(e){}
+      try{new BroadcastChannel('att_sync').postMessage({type:'rename_applied',oldName:currentLocked,newName});}catch(e){}
       const applied=ld('att_renames_applied',{});
-      applied[currentSaved]=Date.now();
+      applied[currentLocked]=Date.now();
       sv('att_renames_applied',applied);
     }
   }
@@ -457,9 +505,9 @@ function recordAttendance(name,si,hi,dist,courseId){
     teacherName:course.teacherName||'',
   },courseId);
   previousName=null; // clear after use
-  // Name may have been updated by rename — ensure saved and card reflects it
-  if(getSavedName()!==name)setSavedName(name);
-  renderNameCard();
+  // Name locking (and the last-used-name suggestion) is already handled in
+  // processCheckIn before this point — just refresh the card for this course.
+  renderNameCard(courseId);
   const s=getSessions(courseId)[si];
   const geoNote=dist!==null?` · ${Math.round(dist)}m from classroom`:'';
   const dateNote=s.date?` (${fmtDate(s.date)})`:'';
@@ -498,21 +546,38 @@ function renderCourseSelect(activeId){
 }
 function escapeHtml(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 
+// The name shown in the "Your name" card right now (whichever course is
+// currently relevant) — compared against a course being viewed in the
+// history dropdown, so we can flag when they don't match.
+function getTopDisplayedName(){
+  const id=relevantCourseId();
+  return id?getLockedName(id):'';
+}
+function updateNameMismatchNote(courseId){
+  const el=document.getElementById('history-name-note');
+  if(!el)return;
+  const topName=getTopDisplayedName();
+  const thisName=courseId?getLockedName(courseId):'';
+  if(topName&&thisName&&topName!==thisName){
+    el.textContent=`이 과목에서는 "${thisName}"(으)로 기록되고 있습니다.`;
+    el.style.display='block';
+  }else{
+    el.style.display='none';
+  }
+}
+
 function renderHistory(courseId){
   if(courseId) selectedHistoryCourse=courseId;
   courseId=selectedHistoryCourse||getActiveCourseId();
 
-  const name=getSavedName(); // 저장된 이름만 — 입력 중인 이름은 조회 불가
   const grid=document.getElementById('history-grid');
   const today=todayStr();
 
   renderCourseSelect(courseId);
+  updateNameMismatchNote(courseId);
 
+  const name=courseId?getLockedName(courseId):'';
   if(!name){
-    grid.innerHTML='<div style="grid-column:1/-1;font-size:12px;font-family:monospace;color:var(--text-faint);padding:8px 0;">QR 스캔 후 체크인하시면 출석 기록이 표시됩니다.</div>';
-    return;
-  }
-  if(!courseId){
     grid.innerHTML='<div style="grid-column:1/-1;font-size:12px;font-family:monospace;color:var(--text-faint);padding:8px 0;">QR 스캔 후 체크인하시면 출석 기록이 표시됩니다.</div>';
     return;
   }
@@ -554,16 +619,25 @@ function renderHistory(courseId){
     clearTimeout(timer);delete window[cbName];script.remove();
     if(!data||data.status!=='ok')return;
     const sheetRec=data.record||{};
-    // 로컬과 시트 데이터 합치기
+    // 서버가 이 이름이 이미 다른 이름으로 수정되었음을 알려주면(재스캔 없이도),
+    // 로컬 잠금 이름과 기록을 조용히 새 이름으로 맞춰준다.
+    const resolvedName=(data.resolvedName&&data.resolvedName!==name)?data.resolvedName:null;
+    const targetName=resolvedName||name;
+
     const c=getCourse(courseId);
     const recs=c.records||{};
-    const merged=Object.assign({},recs[name]||{});
+    const merged=Object.assign({},recs[targetName]||{});
     Object.keys(sheetRec).forEach(si=>{
       if(!merged[si])merged[si]={};
       Object.assign(merged[si],sheetRec[si]);
     });
-    recs[name]=merged;
-    saveCourse(courseId,{records:recs});
+    recs[targetName]=merged;
+    if(resolvedName) delete recs[name]; // fold the stale-named local cache into the resolved name
+    const patch={records:recs};
+    if(resolvedName) patch.lockedName=resolvedName;
+    saveCourse(courseId,patch);
+    if(resolvedName) updateNameMismatchNote(courseId);
+
     // 그 사이 사용자가 다른 강좌로 전환했으면 지금 화면을 덮어쓰지 않음
     if(selectedHistoryCourse===courseId||(!selectedHistoryCourse&&courseId===getActiveCourseId())) renderGrid(merged);
   };
@@ -584,34 +658,38 @@ function renameInSheet(oldName, newName, courseId){
   document.head.appendChild(script);
 }
 
-// ── Init ──────────────────────────────────────────────────────────────────────
-renderCourseBanner();
-renderNameCard();
-
-// ── Active token (kept in memory so editName can re-use it) ──────────────────
+// ── Active token (kept in memory so onNameInput/renderNameCard can re-use it) ─
 let activeToken = null;
 let previousName = null; // tracks name before correction
 
-// Auto check-in from URL token (one-scan flow)
-(function(){
+// ── Init ──────────────────────────────────────────────────────────────────────
+// Parse a scanned QR token (if any) BEFORE rendering the name card / banner —
+// the name card needs to know which course is relevant right now so it shows
+// that course's own locked name (or a fresh input if this is a new course),
+// not whichever course happened to be active before this scan.
+(function initFromURL(){
   const params=new URLSearchParams(window.location.search);
   const t=params.get('t');
-  if(!t)return;
+  try{window.history.replaceState({},'',window.location.pathname);}catch(e){} // clean URL either way
 
-  // Clean the URL so refreshing doesn't re-trigger
-  window.history.replaceState({},'',window.location.pathname);
+  if(t){
+    try{ activeToken=JSON.parse(decodeURIComponent(escape(atob(t)))); }
+    catch(e){
+      renderCourseBanner(); renderNameCard();
+      showAutoResult('error','❌','Invalid check-in link. Please scan again.');
+      return;
+    }
+  }
 
-  let token;
-  try{ token=JSON.parse(decodeURIComponent(escape(atob(t)))); }
-  catch(e){ showAutoResult('error','❌','Invalid check-in link. Please scan again.'); return; }
-
-  activeToken=token; // save for use after name edit
-
-  showCheckinButton(token);
+  renderCourseBanner();
+  renderNameCard();
+  if(activeToken) showCheckinButton(activeToken);
 })();
 
 function showCheckinButton(token){
-  const name=getCurrentName();
+  const courseId=token.scriptUrl;
+  const isLocked=courseId?!!getLockedName(courseId):false;
+  const name=getCurrentName(courseId);
   const btn=document.getElementById('auto-checkin-btn');
   const sub=document.getElementById('checkin-btn-sub');
   const SESSIONS=sessionsFromToken(token);const HOURS=hoursFromToken(token);
@@ -627,17 +705,23 @@ function showCheckinButton(token){
     return;
   }
 
-  // 이름 저장됨 — 버튼 표시 후 자동 체크인
   if(sub)sub.textContent=sessLabel+' · '+hourLabel;
   btn.style.display='block';
   btn.onclick=()=>{
     btn.style.display='none';
     processCheckIn(JSON.stringify(token));
   };
-  setTimeout(()=>{
-    btn.style.display='none';
-    processCheckIn(JSON.stringify(token));
-  }, 300);
+
+  // Already locked for this course → name is guaranteed correct, safe to
+  // check in automatically. A brand-new course shows a pre-filled suggestion
+  // that the student may want to correct, so it waits for an explicit tap
+  // instead of firing on its own.
+  if(isLocked){
+    setTimeout(()=>{
+      btn.style.display='none';
+      processCheckIn(JSON.stringify(token));
+    }, 300);
+  }
 }
 
 window.addEventListener('storage',e=>{
