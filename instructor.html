@@ -1810,6 +1810,14 @@ function updateRenameBanner(){
 }
 
 // ── Renames — persisted in Google Sheet ──────────────────────────────────────
+// Guards against the background renames poll (every 10s, below) racing a
+// just-applied local rename — saveRenameToSheet can take up to ~30s in the
+// worst case (retries), and if the poll's read of the Sheet lands before
+// that write finishes, it would overwrite the correct local pending
+// correction with the Sheet's still-old (pre-save) state, silently erasing
+// it before the student ever gets a chance to scan it.
+let lastLocalRenameAt=0;
+
 function loadRenamesFromSheet(){
   const url=localStorage.getItem('att_script_url')||'';
   if(!url)return;
@@ -1819,7 +1827,12 @@ function loadRenamesFromSheet(){
   window[cbName]=function(data){
     clearTimeout(timer);delete window[cbName];script.remove();
     if(data&&data.status==='ok'){
-      sv('att_renames',data.renames||{});
+      if(Date.now()-lastLocalRenameAt>35000){
+        sv('att_renames',data.renames||{});
+      }
+      // Inside the grace window: skip the overwrite this round rather than
+      // risk erasing a rename that hasn't finished saving yet. The next
+      // poll (or the one after) will pick up the confirmed server state.
       updateRenameBanner();
     }
   };
@@ -2041,12 +2054,21 @@ function startRenameStudent(currentName){
 function applyRenameStudent(oldName, newName){
   const url=localStorage.getItem('att_script_url')||'';
   setRecordsStatus(`"${oldName}" → "${newName}" 변경 중…`,'var(--amber)');
+  lastLocalRenameAt=Date.now(); // protects att_renames from the background poll below until the save settles
 
   // Save to renames map — will be embedded in next QR so student phones auto-update
   const renames=ld('att_renames',{});
   renames[oldName]=newName;
   sv('att_renames',renames);
   updateRenameBanner();
+
+  // If a QR is currently on screen, it was generated BEFORE this correction
+  // existed and normally wouldn't pick it up until its next auto-refresh
+  // (up to 60s away) — regenerate it right now so a student scanning in the
+  // meantime never gets a stale, uncorrected QR.
+  if(state.selectedSession!==null&&state.selectedHour!==null){
+    generateQR(state.selectedSession,state.selectedHour);
+  }
 
   // Update local records
   const att=ld('att_records',{});
