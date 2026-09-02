@@ -486,6 +486,14 @@
       <div id="settings-sync-msg" style="font-size:12px;font-family:monospace;margin-top:8px;display:none;"></div>
     </div>
 
+    <div class="section-label">Device fingerprint warnings</div>
+    <div class="card">
+      <div class="row">
+        <div><label>Show fingerprint warnings</label><small>"같은 기기로 보이는 서로 다른 이름" 등 참고용 경고를 Records 탭에 표시</small></div>
+        <label class="toggle"><input type="checkbox" id="fp-warnings-toggle" checked onchange="onFpWarningsToggle()"><span class="toggle-slider"></span></label>
+      </div>
+    </div>
+
     <div class="section-label">Geofencing</div>
     <div class="card">
       <div class="row" style="margin-bottom:14px;">
@@ -795,6 +803,10 @@ function initApp(){
   // saved course setting — always start OFF so a previous instructor's test
   // session can never carry over as a real, unenforced-geofence class.
   localStorage.setItem('att_test_mode','0');
+  // Fingerprint-warning display is a personal preference, not a course
+  // setting — persists per browser, same across every profile.
+  const fpToggle=document.getElementById('fp-warnings-toggle');
+  if(fpToggle)fpToggle.checked=isFpWarningsEnabled();
 
   const course=ld('att_course',{});
   state.courseTitle=course.title||''; state.courseNumber=course.number||''; state.teacherName=course.teacher||'';
@@ -1310,6 +1322,12 @@ function runDiagnostic(){
 
 // ── Geo ───────────────────────────────────────────────────────────────────────
 function onGeoToggle(){state.geoEnabled=document.getElementById('geo-toggle').checked;document.getElementById('radius-row').style.display=state.geoEnabled?'flex':'none';updateGeoBadge();}
+
+function isFpWarningsEnabled(){return localStorage.getItem('att_fp_warnings')!=='0';}
+function onFpWarningsToggle(){
+  localStorage.setItem('att_fp_warnings',document.getElementById('fp-warnings-toggle').checked?'1':'0');
+  renderFingerprintWarning(state.attendance||{});
+}
 function updateGeoBadge(){
   state.geoRadius=parseInt(document.getElementById('geo-radius').value)||50;
   const b=document.getElementById('geo-badge');if(!b)return;
@@ -1571,6 +1589,7 @@ function buildFilterOptions(){
 function renderFingerprintWarning(attendance){
   const banner=document.getElementById('fp-warning-banner');
   if(!banner)return;
+  if(!isFpWarningsEnabled()){banner.style.display='none';return;}
   const fpToNames={};
   Object.keys(attendance).forEach(name=>{
     const rec=attendance[name];
@@ -2004,7 +2023,7 @@ function openDetailPanel(name){
   state.sessions.forEach((_,si)=>{
     Object.values(rec[si]||{}).forEach(r=>{ if(r&&r.fp) fps.add(r.fp); });
   });
-  const fpWarning=fps.size>1
+  const fpWarning=(isFpWarningsEnabled()&&fps.size>1)
     ? `<div style="margin-top:6px;font-size:11px;color:var(--amber);font-family:monospace;">⚠️ 서로 다른 기기 지문 ${fps.size}개가 발견되었습니다 (참고용 — 오탐 가능)</div>`
     : '';
 
