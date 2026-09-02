@@ -203,12 +203,18 @@ function hoursFromToken(token){return Array.isArray(token.hours)?token.hours:get
 // ── Course banner (always reflects the most recently scanned course) ─────────
 function renderCourseBanner(){
   const c=getCourse(getActiveCourseId());
+  const banner=document.getElementById('course-banner');
   if(c.courseTitle){
     document.getElementById('course-title-el').textContent=c.courseTitle;
     const meta=[c.courseNumber,c.teacherName?'Instructor: '+c.teacherName:''].filter(Boolean).join(' · ');
     document.getElementById('course-meta-el').textContent=meta;
-    document.getElementById('course-banner').style.display='block';
+    banner.style.display='block';
     document.title=c.courseTitle+' · Attendance';
+  }else{
+    // No title for the CURRENT course — hide rather than leave a PREVIOUS
+    // course's banner showing, which would misleadingly look like this
+    // check-in belongs to the wrong course.
+    banner.style.display='none';
   }
 }
 
@@ -436,6 +442,10 @@ function processCheckIn(raw){
       }
       saveCourse(courseId,{records:recs,lockedName:newName});
       name=newName; // use new name for the rest of check-in
+      // Also update the device-wide "last used name" suggestion — otherwise
+      // the NEXT brand-new course this student checks into would still be
+      // pre-filled with the old, now-corrected name.
+      setLastUsedName(newName);
       showAutoResult('warn','✏️',`이름이 "${currentLocked}"에서 "${newName}"으로 수정되었습니다.`);
       renderNameCard(courseId);
 
@@ -636,7 +646,12 @@ function renderHistory(courseId){
     const patch={records:recs};
     if(resolvedName) patch.lockedName=resolvedName;
     saveCourse(courseId,patch);
-    if(resolvedName) updateNameMismatchNote(courseId);
+    if(resolvedName){
+      updateNameMismatchNote(courseId);
+      // Also update the device-wide suggestion — so the next brand-new
+      // course this student starts is pre-filled with the corrected name.
+      setLastUsedName(resolvedName);
+    }
 
     // 그 사이 사용자가 다른 강좌로 전환했으면 지금 화면을 덮어쓰지 않음
     if(selectedHistoryCourse===courseId||(!selectedHistoryCourse&&courseId===getActiveCourseId())) renderGrid(merged);
@@ -686,6 +701,38 @@ let previousName = null; // tracks name before correction
   if(activeToken) showCheckinButton(activeToken);
 })();
 
+// When starting a brand-new (never checked-into) course, silently check
+// whether the name suggested here — carried over from whichever course was
+// used last — has since been corrected THERE, so a fresh typo fix picked up
+// automatically without needing to rescan or check history on that other
+// course first. Best-effort only: short timeout, never blocks or delays the
+// check-in itself, and never overwrites something the student already typed.
+function refreshSuggestionFromPreviousCourse(suggestion){
+  const prevCourseId=getActiveCourseId();
+  if(!prevCourseId||!suggestion)return;
+  const prevUrl=getScriptURL(prevCourseId);
+  if(!prevUrl)return;
+  const cbName='_pc'+Date.now();
+  const script=document.createElement('script');
+  const timer=setTimeout(()=>{delete window[cbName];script.remove();},3000);
+  window[cbName]=function(data){
+    clearTimeout(timer);delete window[cbName];script.remove();
+    if(!data||data.status!=='ok')return;
+    const resolved=data.resolvedName;
+    if(!resolved||resolved===suggestion)return;
+    setLastUsedName(resolved);
+    // Only overwrite the visible input if the student hasn't already edited it
+    const input=document.getElementById('student-name');
+    if(input&&input.value.trim()===suggestion){
+      input.value=resolved;
+      onNameInput();
+    }
+  };
+  script.onerror=function(){clearTimeout(timer);delete window[cbName];script.remove();};
+  script.src=buildStudentURL(prevUrl,{action:'get_student_records',name:suggestion},getSecretKey(prevCourseId))+'&callback='+cbName;
+  document.head.appendChild(script);
+}
+
 function showCheckinButton(token){
   const courseId=token.scriptUrl;
   const isLocked=courseId?!!getLockedName(courseId):false;
@@ -704,6 +751,8 @@ function showCheckinButton(token){
     btn.style.display='none';
     return;
   }
+
+  if(!isLocked) refreshSuggestionFromPreviousCourse(name);
 
   if(sub)sub.textContent=sessLabel+' · '+hourLabel;
   btn.style.display='block';
