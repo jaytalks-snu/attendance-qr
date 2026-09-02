@@ -394,37 +394,77 @@ function getDeviceFingerprint(){
   return cachedFingerprint;
 }
 
-function sendToSheet(payload,courseId){
+// Any check-in that fails to reach the Sheet after retries is kept here so
+// it can be retried automatically next time this page loads — e.g. the
+// student reopens it later, or scans the next QR — rather than being lost
+// the moment the student closes the tab.
+function addToPendingSyncQueue(payload,courseId){
+  const q=ld('att_pending_syncs',[]);
+  q.push({payload,courseId,ts:Date.now()});
+  sv('att_pending_syncs',q);
+}
+function removeFromPendingSyncQueue(payload,courseId){
+  const q=ld('att_pending_syncs',[]);
+  const filtered=q.filter(item=>!(item.courseId===courseId&&item.payload.session===payload.session&&item.payload.hour===payload.hour&&item.payload.name===payload.name));
+  if(filtered.length!==q.length) sv('att_pending_syncs',filtered);
+}
+function retryPendingSyncs(){
+  const q=ld('att_pending_syncs',[]);
+  if(q.length===0)return;
+  // Drop anything absurdly old so the queue can't grow forever from ancient failed attempts
+  const DAY=24*60*60*1000;
+  const fresh=q.filter(item=>Date.now()-item.ts<DAY);
+  if(fresh.length!==q.length) sv('att_pending_syncs',fresh);
+  fresh.forEach(item=>sendToSheet(item.payload,item.courseId,0));
+}
+
+function handleSyncFailure(payload,courseId,attempt){
+  // A busy moment on the instructor's Sheet (e.g. right after a rename or
+  // several students checking in at once) can make a single attempt time
+  // out even though the Sheet itself is fine — retry a couple of times
+  // before treating it as a real, longer-lived failure.
+  if(attempt<2){
+    showSyncStatus('⚠ 동기화가 지연되고 있습니다 — 잠시 후 다시 시도합니다…','var(--amber)');
+    setTimeout(()=>sendToSheet(payload,courseId,attempt+1),4000*(attempt+1));
+  }else{
+    showSyncStatus('❌ 서버 동기화에 실패했습니다 — 기기에는 저장되어 있고, 다음에 이 페이지를 열면 자동으로 다시 시도합니다.','var(--red)');
+    addToPendingSyncQueue(payload,courseId);
+  }
+}
+
+function sendToSheet(payload,courseId,attempt){
   courseId=courseId||getActiveCourseId();
+  attempt=attempt||0;
   const url=getScriptURL(courseId);
   if(!url){
     showSyncStatus('⚠ No script URL — check-in saved locally only','var(--amber)');
     return;
   }
-  showSyncStatus('Syncing to Google Sheets…');
+  showSyncStatus(attempt>0?`동기화 재시도 중… (${attempt}/2)`:'Syncing to Google Sheets…');
 
-  const cbName='_ci'+Date.now();
+  const cbName='_ci'+Date.now()+Math.random().toString(36).slice(2,6);
   const script=document.createElement('script');
 
   const timer=setTimeout(()=>{
     delete window[cbName];script.remove();
-    showSyncStatus('❌ Sync timed out — saved locally only. URL: '+url.slice(0,60)+'…','var(--red)');
+    handleSyncFailure(payload,courseId,attempt);
   },15000);
 
   window[cbName]=function(data){
     clearTimeout(timer);delete window[cbName];script.remove();
     if(data&&data.status==='ok'){
       showSyncStatus('✓ Synced to Google Sheets ('+data.message+')','var(--green)');
+      removeFromPendingSyncQueue(payload,courseId);
       // 시트 저장 완료 후 해당 학생 기록만 다시 조회
       setTimeout(()=>renderHistory(courseId), 500);
     } else {
-      showSyncStatus('❌ Sheet error: '+(data&&data.message?data.message:'unknown'),'var(--red)');
+      handleSyncFailure(payload,courseId,attempt);
     }
   };
 
   script.onerror=function(){
     clearTimeout(timer);delete window[cbName];script.remove();
-    showSyncStatus('❌ Script blocked — URL may be wrong or CSP is blocking it','var(--red)');
+    handleSyncFailure(payload,courseId,attempt);
   };
 
   script.src=buildStudentURL(url,{
@@ -443,7 +483,7 @@ function sendToSheet(payload,courseId){
     fingerprint:  getDeviceFingerprint(),
   },getSecretKey(courseId))+'&callback='+cbName;
   document.head.appendChild(script);
-  showSyncStatus('Connecting to: '+url.slice(0,60)+'…');
+  showSyncStatus('출석 정보를 서버로 보내는 중…');
 }
 
 // ── Check-in ──────────────────────────────────────────────────────────────────
@@ -771,6 +811,10 @@ let previousName = null; // tracks name before correction
   renderCourseBanner();
   renderNameCard();
   if(activeToken) showCheckinButton(activeToken);
+
+  // Retry anything that failed to sync last time this page was open —
+  // best-effort, runs quietly in the background.
+  retryPendingSyncs();
 })();
 
 // When starting a brand-new (never checked-into) course, silently check
