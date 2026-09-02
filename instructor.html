@@ -669,7 +669,16 @@ function confirmAddProfile(){
   pickProfile(url);
 }
 
+let pendingFreshProfile=null; // set by pickProfile when this device has never loaded this profile before
+
 function pickProfile(url){
+  // Detect "never used on this device before" BEFORE loadProfileIntoStorage
+  // touches anything — an instructor who set course info/Sessions up from
+  // home should see it appear automatically the first time they log into
+  // this same profile on the classroom computer, not just a blank default.
+  let bundleData; try{ bundleData=JSON.parse(_rawGetItem('att_profile_data')||'{}'); }catch{ bundleData={}; }
+  pendingFreshProfile=bundleData[url]?null:url;
+
   loadProfileIntoStorage(url);
   const profiles=getProfiles();
   const p=profiles[url]||{};
@@ -700,6 +709,17 @@ function doLogin(){
     document.getElementById('login-screen').style.display='none';
     document.getElementById('app').style.display='block';
     initApp();
+    if(pendingFreshProfile){
+      const url=pendingFreshProfile;
+      pendingFreshProfile=null;
+      // First time this profile is used on this device — automatically pull
+      // whatever course info/Sessions the instructor already set up
+      // elsewhere (e.g. from home), instead of showing an empty default.
+      if((localStorage.getItem('att_script_url')||'')===url){
+        showToast('이 기기는 처음이라 시트에서 설정을 불러오는 중…');
+        loadSettingsFromSheet(true);
+      }
+    }
   }else{
     document.getElementById('login-error').style.display='block';
     document.getElementById('pw-input').value='';
@@ -1068,16 +1088,28 @@ function saveSettingsToSheet(msgElId,alsoToast){
   document.head.appendChild(script);
 }
 
-function loadSettingsFromSheet(){
+function loadSettingsFromSheet(alsoToast){
   const url=localStorage.getItem('att_script_url')||'';
-  if(!url){showSettingsMsg('Script URL이 없습니다.','var(--red)');return;}
+  if(!url){
+    showSettingsMsg('Script URL이 없습니다.','var(--red)');
+    if(alsoToast)showToast('❌ Script URL이 없어 불러오지 못했습니다','var(--red)');
+    return;
+  }
   showSettingsMsg('불러오는 중…');
   const cbName='_ls'+Date.now();
   const script=document.createElement('script');
-  const timer=setTimeout(()=>{delete window[cbName];script.remove();showSettingsMsg('시간 초과','var(--red)');},15000);
+  const timer=setTimeout(()=>{
+    delete window[cbName];script.remove();
+    showSettingsMsg('시간 초과','var(--red)');
+    if(alsoToast)showToast('❌ 불러오기 시간 초과','var(--red)');
+  },15000);
   window[cbName]=function(data){
     clearTimeout(timer);delete window[cbName];script.remove();
-    if(!data||data.status!=='ok'){showSettingsMsg('오류: '+(data&&data.message||'알 수 없음'),'var(--red)');return;}
+    if(!data||data.status!=='ok'){
+      showSettingsMsg('오류: '+(data&&data.message||'알 수 없음'),'var(--red)');
+      if(alsoToast)showToast('❌ 불러오기 실패: '+(data&&data.message||'알 수 없음'),'var(--red)');
+      return;
+    }
     const s=data.settings||{};
     if(s.courseTitle){state.courseTitle=s.courseTitle;document.getElementById('course-title').value=s.courseTitle;}
     if(s.courseNumber){state.courseNumber=s.courseNumber;document.getElementById('course-number').value=s.courseNumber;}
@@ -1109,6 +1141,7 @@ function loadSettingsFromSheet(){
     updateHeader();
     updateProfileMetaFromState();
     showSettingsMsg('✓ 시트에서 설정 복구 완료','var(--green)');
+    if(alsoToast)showToast('✓ 시트에서 강좌 정보와 Sessions를 불러왔습니다','var(--green)');
   };
   script.src=buildURL(url,{action:'get_settings'})+'&callback='+cbName;
   document.head.appendChild(script);
