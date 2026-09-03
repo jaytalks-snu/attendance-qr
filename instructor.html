@@ -2030,6 +2030,7 @@ function openDetailPanel(name){
   document.getElementById('detail-name').innerHTML=`
     <span id="detail-name-text">👤 ${name}</span>
     <button class="btn btn-sm" style="margin-left:10px;font-size:11px;" onclick="startRenameStudent('${name.replace(/'/g,"\\'")}')">이름 수정</button>
+    <button class="btn btn-sm" style="margin-left:6px;font-size:11px;" onclick="startMergeStudent('${name.replace(/'/g,"\\'")}')">🔀 병합</button>
     <button class="btn btn-sm btn-danger" style="margin-left:6px;font-size:11px;" onclick="deleteStudentRecords('${name.replace(/'/g,"\\'")}')">🗑 기록 삭제</button>`;
   document.getElementById('detail-stats').innerHTML=
     `출석 ${tot}/${pos}시간 &nbsp;·&nbsp; <span style="color:${col};font-weight:500;">${pct}%</span>`+fpWarning;
@@ -2136,6 +2137,66 @@ function applyRenameStudent(oldName, newName){
 
 function closeDetailPanel(){
   document.getElementById('detail-panel').classList.remove('open');
+}
+
+// ── Merge two names that turned out to be the same student ────────────────────
+// Different from rename: rename relabels every row of one name; merge is for
+// when a student ALREADY has records under two different names in this
+// course (e.g. checked in as "A" for some sessions and "A-1" for others,
+// before ever being corrected) and those two need to become one person.
+function startMergeStudent(currentName){
+  const others=Object.keys(state.attendance||{}).filter(n=>n!==currentName);
+  if(others.length===0){alert('병합할 다른 학생 기록이 없습니다.');return;}
+  const otherName=prompt(
+    `"${currentName}"과(와) 합칠 다른 이름을 정확히 입력하세요.\n(같은 학생이 오타 등으로 따로 등록된 경우)\n\n현재 등록된 다른 이름들:\n${others.join(', ')}`,
+    ''
+  );
+  if(!otherName)return;
+  const trimmed=otherName.trim();
+  if(trimmed===currentName){alert('같은 이름입니다.');return;}
+  if(!state.attendance[trimmed]){alert(`"${trimmed}"이라는 이름의 기록을 찾을 수 없습니다. 목록에 있는 이름을 정확히 입력해 주세요.`);return;}
+  if(!confirm(`"${trimmed}"의 모든 기록을 "${currentName}"으로 합칠까요?\n\n같은 회차·시간에 두 이름 모두 기록이 있다면, "${currentName}" 쪽 기록을 유지하고 "${trimmed}" 쪽은 버려집니다.\n이 작업은 되돌릴 수 없습니다.`))return;
+  applyMergeStudents(trimmed,currentName);
+}
+
+function applyMergeStudents(dropName,keepName){
+  const url=localStorage.getItem('att_script_url')||'';
+  if(!url){alert('Script URL이 없어 병합할 수 없습니다.');return;}
+  setRecordsStatus(`"${dropName}" → "${keepName}" 병합 중…`,'var(--amber)');
+  closeDetailPanel();
+
+  // The student's device may still be locked under dropName — route this
+  // through the same Renames-sheet mechanism as a normal rename (with the
+  // same retry-then-confirm sequencing) so their next scan picks up the
+  // correction too, exactly like renaming does.
+  lastLocalRenameAt=Date.now();
+  const renames=ld('att_renames',{});
+  renames[dropName]=keepName;
+  sv('att_renames',renames);
+  updateRenameBanner();
+  if(state.selectedSession!==null&&state.selectedHour!==null){
+    generateQR(state.selectedSession,state.selectedHour);
+  }
+
+  saveRenameToSheet(dropName,keepName,undefined,function(){
+    const cbName='_mg'+Date.now();
+    const script=document.createElement('script');
+    const timer=setTimeout(()=>{
+      delete window[cbName];script.remove();
+      setRecordsStatus('시간 초과 — Refresh로 확인하세요','var(--red)');
+    },15000);
+    window[cbName]=function(data){
+      clearTimeout(timer);delete window[cbName];script.remove();
+      if(data&&data.status==='ok'){
+        setRecordsStatus(`✓ 병합 완료 (${data.message})`,'var(--green)');
+      }else{
+        setRecordsStatus('오류: '+(data&&data.message||'알 수 없음'),'var(--red)');
+      }
+      setTimeout(()=>renderRecords(),1000);
+    };
+    script.src=buildURL(url,{action:'merge_students',dropName,keepName})+'&callback='+cbName;
+    document.head.appendChild(script);
+  });
 }
 
 // ── Manual attendance ─────────────────────────────────────────────────────────
