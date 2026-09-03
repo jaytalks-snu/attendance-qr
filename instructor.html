@@ -481,6 +481,7 @@
         <button class="btn btn-sm" onclick="runDiagnostic()">🔍 Run diagnostic</button>
         <button class="btn btn-sm btn-primary" onclick="saveSettingsToSheet()">☁️ Save all settings to Sheet</button>
         <button class="btn btn-sm" onclick="loadSettingsFromSheet()">↺ Restore from Sheet</button>
+        <button class="btn btn-sm" onclick="rebuildSummaryNow()">🔄 Rebuild Summary now</button>
       </div>
       <div id="diag-output" style="display:none;margin-top:12px;background:var(--surface2);border-radius:var(--radius);padding:12px;font-family:monospace;font-size:11px;line-height:1.8;"></div>
       <div id="settings-sync-msg" style="font-size:12px;font-family:monospace;margin-top:8px;display:none;"></div>
@@ -1779,6 +1780,33 @@ function startRecordsPoll(){
 // decoupled from the busy check-in path. A miss here just means Summary is
 // briefly stale, never a lost check-in.
 let summaryRebuildInterval=null;
+function rebuildSummaryNow(){
+  const url=localStorage.getItem('att_script_url')||'';
+  if(!url){showSettingsMsg('Script URL이 없습니다.','var(--red)');return;}
+  showSettingsMsg('Summary 재계산 중…');
+  const cbName='_rbn'+Date.now();
+  const script=document.createElement('script');
+  const timer=setTimeout(()=>{
+    delete window[cbName];script.remove();
+    showSettingsMsg('시간 초과','var(--red)');
+  },20000);
+  window[cbName]=function(data){
+    clearTimeout(timer);delete window[cbName];script.remove();
+    if(data&&data.status==='ok'){
+      showSettingsMsg('✓ Summary 재계산 완료','var(--green)');
+      showToast('✓ Instructor Summary가 최신 상태로 갱신되었습니다','var(--green)');
+    }else{
+      showSettingsMsg('오류: '+(data&&data.message||'알 수 없음'),'var(--red)');
+    }
+  };
+  script.onerror=function(){
+    clearTimeout(timer);delete window[cbName];script.remove();
+    showSettingsMsg('연결 오류','var(--red)');
+  };
+  script.src=buildURL(url,{action:'rebuild_summary'})+'&callback='+cbName;
+  document.head.appendChild(script);
+}
+
 function startSummaryRebuildPoll(){
   if(summaryRebuildInterval)clearInterval(summaryRebuildInterval);
   summaryRebuildInterval=setInterval(()=>{
