@@ -278,7 +278,7 @@ function onNameInput(){
     const SESSIONS=sessionsFromToken(activeToken);const HOURS=hoursFromToken(activeToken);
     const sessLabel=SESSIONS[activeToken.session]?.date?fmtDate(SESSIONS[activeToken.session].date):'Day '+(activeToken.session+1);
     const hourLabel=HOURS[activeToken.hour]?.time||('Hour '+(activeToken.hour+1));
-    if(sub)sub.textContent=sessLabel+' · '+hourLabel;
+    if(sub)sub.textContent=(activeToken.testMode?'🧪 테스트 모드 · ':'')+sessLabel+' · '+hourLabel;
     btn.querySelector('.btn-main-text').textContent='Tap to Check In';
     btn.style.display='block';
     btn.onclick=()=>{
@@ -954,7 +954,7 @@ function showCheckinButton(token){
   if(!name){
     // 이름 없음 — 입력 안내 메시지 표시, 버튼은 onNameInput()이 처리
     showAutoResult('warn','✏️','위에 이름을 입력한 후 나타나는 버튼을 눌러 체크인하세요.');
-    if(sub)sub.textContent='이름 입력 후 탭하세요';
+    if(sub)sub.textContent=(token.testMode?'🧪 테스트 모드 · ':'')+'이름 입력 후 탭하세요';
     // 버튼 숨김 — onNameInput이 이름 타이핑 시 표시함
     btn.style.display='none';
     return;
