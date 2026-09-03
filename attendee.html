@@ -962,7 +962,7 @@ function showCheckinButton(token){
 
   if(!isLocked) refreshSuggestionFromPreviousCourse(name);
 
-  if(sub)sub.textContent=sessLabel+' · '+hourLabel;
+  if(sub)sub.textContent=(token.testMode?'🧪 테스트 모드 · ':'')+sessLabel+' · '+hourLabel;
   btn.style.display='block';
   btn.onclick=()=>{
     btn.style.display='none';
@@ -970,10 +970,11 @@ function showCheckinButton(token){
   };
 
   // Already locked for this course → name is guaranteed correct, safe to
-  // check in automatically. A brand-new course shows a pre-filled suggestion
-  // that the student may want to correct, so it waits for an explicit tap
-  // instead of firing on its own.
-  if(isLocked){
+  // check in automatically. A brand-new course (or a test-mode scan, which
+  // is never locked and never persisted) shows a pre-filled suggestion the
+  // student may want to correct, so it waits for an explicit tap instead of
+  // firing on its own.
+  if(isLocked&&!token.testMode){
     setTimeout(()=>{
       btn.style.display='none';
       processCheckIn(JSON.stringify(token));
