@@ -589,12 +589,16 @@ function processCheckIn(raw){
     }
   }
 
-  // Use the (possibly updated) name for duplicate check
-  const attendance=getCourse(courseId).records||{};
-  if(attendance[name]?.[token.session]?.[token.hour]){
-    showAutoResult('warn','✅',`Already checked in for Day ${token.session+1}, Hour ${token.hour+1}.`);
-    renderHistory();return;
-  }
+  // Note: we deliberately do NOT short-circuit here even if the local cache
+  // already has this session/hour recorded. Trusting the local cache alone
+  // meant that if the instructor ever cleared the Sheet (e.g. wiping test
+  // data before real class), a student who'd already tested that exact
+  // slot on this device would silently never re-submit it — their phone
+  // believed it was already done, so the Sheet stayed empty forever for
+  // that slot. Always confirming with the server costs one extra request
+  // for genuine repeat scans, but the server's own check-in logic already
+  // updates an existing row in place rather than duplicating it, so this is
+  // safe either way.
 
   if(token.geo&&token.lat!==null&&token.lng!==null){
     showAutoResult('warn','📍','Verifying your location…');
@@ -615,9 +619,16 @@ function recordAttendance(name,si,hi,dist,courseId){
   const attendance=course.records||{};
   if(!attendance[name])attendance[name]={};
   if(!attendance[name][si])attendance[name][si]={};
-  if(attendance[name][si][hi]){showAutoResult('warn','✅',`Already checked in for Day ${si+1}, Hour ${hi+1}.`);return;}
+  const existing=attendance[name][si][hi];
+  // A genuine repeat scan keeps its ORIGINAL recorded time rather than
+  // jumping to "now" — this call still reaches the server (see note above),
+  // it just doesn't make an already-checked-in moment look like it happened
+  // again just now.
   const now=new Date();
-  attendance[name][si][hi]={time:now.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',hour12:true}),date:now.toLocaleDateString(),dist:dist!==null?Math.round(dist):null};
+  const checkInTime=existing?existing.time:now.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',hour12:true});
+  const checkInDate=existing?existing.date:now.toLocaleDateString();
+  const finalDist=dist!==null?Math.round(dist):(existing?existing.dist:null);
+  attendance[name][si][hi]={time:checkInTime,date:checkInDate,dist:finalDist};
   saveCourse(courseId,{records:attendance});
   // Notify teacher page
   if(typeof BroadcastChannel!=='undefined'){try{new BroadcastChannel('att_sync').postMessage('att_records');}catch(e){}}
@@ -632,8 +643,8 @@ function recordAttendance(name,si,hi,dist,courseId){
     hour:hi,
     sessionDate:getSessions(courseId)[si]?.date||'',
     hourLabel:getHours(courseId)[hi]?.time||('Hour '+(hi+1)),
-    checkInTime:attendance[name][si][hi].time,
-    dist:dist!==null?Math.round(dist):null,
+    checkInTime,
+    dist:finalDist,
     courseTitle:course.courseTitle||'',
     courseNumber:course.courseNumber||'',
     teacherName:course.teacherName||'',
@@ -643,9 +654,11 @@ function recordAttendance(name,si,hi,dist,courseId){
   // processCheckIn before this point — just refresh the card for this course.
   renderNameCard(courseId);
   const s=getSessions(courseId)[si];
-  const geoNote=dist!==null?` · ${Math.round(dist)}m from classroom`:'';
+  const geoNote=finalDist!==null?` · ${finalDist}m from classroom`:'';
   const dateNote=s.date?` (${fmtDate(s.date)})`:'';
-  const msg=`Checked in for <strong>Day ${si+1}${dateNote}, Hour ${hi+1}</strong> at ${attendance[name][si][hi].time}${geoNote}`;
+  const msg=existing
+    ? `Already checked in for <strong>Day ${si+1}${dateNote}, Hour ${hi+1}</strong> at ${checkInTime}${geoNote} — re-confirmed with server.`
+    : `Checked in for <strong>Day ${si+1}${dateNote}, Hour ${hi+1}</strong> at ${checkInTime}${geoNote}`;
   showAutoResult('success','✅',msg);
 
   // Show local data immediately (fast)
