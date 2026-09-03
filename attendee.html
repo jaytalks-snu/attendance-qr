@@ -509,6 +509,20 @@ function processCheckIn(raw){
   if(!token.scriptUrl){showAutoResult('error','❌','Unrecognised QR code.');return;}
 
   const courseId=token.scriptUrl;
+
+  // Test-mode QR codes (instructor's "🧪 Testing mode" toggle) are meant for
+  // trying the scan flow before real class — often scanned straight from a
+  // phone's camera app, which always opens a normal (non-private) tab, so
+  // there's no reliable way to ask a tester to "use private browsing"
+  // instead. Handle it here in code: still hit the real server (so
+  // connectivity/setup can be verified end-to-end), but never lock a name
+  // or cache a record on this device for it — nothing is left behind to
+  // conflict with the same slot's real check-in later.
+  if(token.testMode){
+    processTestCheckIn(token,courseId);
+    return;
+  }
+
   let name=getCurrentName(courseId);
   if(!name){showAutoResult('warn','✏️','Please enter your name before scanning.');return;}
 
@@ -611,6 +625,59 @@ function processCheckIn(raw){
   }else{
     recordAttendance(name,token.session,token.hour,null,courseId);
   }
+}
+
+// ── Test-mode check-in (never persisted on this device) ───────────────────────
+function processTestCheckIn(token,courseId){
+  const name=getCurrentName(courseId);
+  if(!name){showAutoResult('warn','✏️','Please enter your name before scanning.');return;}
+
+  showAutoResult('warn','🧪','테스트 모드 — 서버로 전송 중… (이 기기에는 저장되지 않습니다)');
+
+  const now=new Date();
+  const checkInTime=now.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',hour12:true});
+  const sessions=sessionsFromToken(token), hours=hoursFromToken(token);
+  const payload={
+    name,
+    session:token.session,
+    hour:token.hour,
+    sessionDate:sessions[token.session]?.date||'',
+    hourLabel:hours[token.hour]?.time||('Hour '+(token.hour+1)),
+    checkInTime,
+    courseTitle:token.courseTitle||'',
+    courseNumber:token.courseNumber||'',
+    teacherName:token.teacherName||'',
+  };
+
+  const cbName='_tci'+Date.now()+Math.random().toString(36).slice(2,6);
+  const script=document.createElement('script');
+  const timer=setTimeout(()=>{
+    delete window[cbName];script.remove();
+    showAutoResult('error','❌','테스트 체크인 응답이 없습니다 (시간 초과). 서버에는 도착했을 수 있습니다.');
+  },25000);
+  window[cbName]=function(data){
+    clearTimeout(timer);delete window[cbName];script.remove();
+    if(data&&data.status==='ok'){
+      showAutoResult('success','🧪',`테스트 체크인 완료 — Day ${token.session+1}, Hour ${token.hour+1} (이 기록은 이 기기에 저장되지 않았습니다)`);
+    }else{
+      showAutoResult('error','❌','테스트 체크인 실패: '+(data&&data.message||'알 수 없음'));
+    }
+  };
+  script.onerror=function(){
+    clearTimeout(timer);delete window[cbName];script.remove();
+    showAutoResult('error','❌','서버에 연결하지 못했습니다.');
+  };
+  const params={
+    action:'checkin', name:payload.name, previousName:'',
+    session:payload.session, hour:payload.hour,
+    sessionDate:payload.sessionDate, hourLabel:payload.hourLabel,
+    checkInTime:payload.checkInTime, dist:'',
+    courseTitle:payload.courseTitle, courseNumber:payload.courseNumber, teacherName:payload.teacherName,
+    fingerprint:getDeviceFingerprint(), skipSummary:'true',
+  };
+  if(token.secretKey)params.key=token.secretKey;
+  script.src=courseId+'?'+new URLSearchParams(params).toString()+'&callback='+cbName;
+  document.head.appendChild(script);
 }
 
 function recordAttendance(name,si,hi,dist,courseId){
