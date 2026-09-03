@@ -486,6 +486,13 @@ function sendToSheet(payload,courseId,attempt){
     courseNumber: payload.courseNumber ||'',
     teacherName:  payload.teacherName  ||'',
     fingerprint:  getDeviceFingerprint(),
+    // Rebuilding the whole Summary sheet on every single check-in is the
+    // heaviest part of this request — with many students checking in at
+    // nearly the same moment, that cost multiplied across all of them is
+    // what causes timeouts under real classroom load. Skip it here; the
+    // instructor's own page refreshes Summary periodically in the background
+    // instead, decoupling it from this time-critical path.
+    skipSummary:  'true',
   },getSecretKey(courseId))+'&callback='+cbName;
   document.head.appendChild(script);
   showSyncStatus('출석 정보를 서버로 보내는 중…');

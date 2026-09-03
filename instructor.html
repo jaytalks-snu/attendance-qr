@@ -492,6 +492,10 @@
         <div><label>Show fingerprint warnings</label><small>"같은 기기로 보이는 서로 다른 이름" 등 참고용 경고를 Records 탭에 표시</small></div>
         <label class="toggle"><input type="checkbox" id="fp-warnings-toggle" checked onchange="onFpWarningsToggle()"><span class="toggle-slider"></span></label>
       </div>
+      <div class="row" style="margin-top:14px;">
+        <div><label>Show pending-rename banner</label><small>QR Codes 탭의 "이름 수정 대기 중" 알림 표시</small></div>
+        <label class="toggle"><input type="checkbox" id="rename-banner-toggle" checked onchange="onRenameBannerToggle()"><span class="toggle-slider"></span></label>
+      </div>
     </div>
 
     <div class="section-label">Geofencing</div>
@@ -807,6 +811,8 @@ function initApp(){
   // setting — persists per browser, same across every profile.
   const fpToggle=document.getElementById('fp-warnings-toggle');
   if(fpToggle)fpToggle.checked=isFpWarningsEnabled();
+  const renameBannerToggle=document.getElementById('rename-banner-toggle');
+  if(renameBannerToggle)renameBannerToggle.checked=isRenameBannerEnabled();
 
   const course=ld('att_course',{});
   state.courseTitle=course.title||''; state.courseNumber=course.number||''; state.teacherName=course.teacher||'';
@@ -845,6 +851,7 @@ function initApp(){
   // Load renames from Google Sheet on startup (survives browser cache clears)
   loadRenamesFromSheet();
   startRenamesPoll();
+  startSummaryRebuildPoll();
   updateProfileMetaFromState();
 
   // Always land on a known, clean tab after logging in — whichever tab was
@@ -1264,18 +1271,19 @@ function runDiagnostic(){
   diagLog(lines,'✓ URL format looks correct','var(--green)');
 
   // Step 3: JSONP reachability test
-  diagLog(lines,'… Contacting Apps Script via JSONP (may take 5–10s)');
+  diagLog(lines,'… Contacting Apps Script via JSONP (may take up to 20s)');
   const cbName='_diag'+Date.now();
   const script=document.createElement('script');
   const timer=setTimeout(()=>{
     delete window[cbName]; script.remove();
-    diagLog(lines,'❌ Timed out — Apps Script did not respond within 10 seconds.','var(--red)');
+    diagLog(lines,'❌ Timed out — Apps Script did not respond within 20 seconds.','var(--red)');
     diagLog(lines,'   Possible causes:','var(--amber)');
     diagLog(lines,'   • Script not deployed yet, or deployed as old version','var(--amber)');
     diagLog(lines,'   • "Who has access" not set to Anyone','var(--amber)');
     diagLog(lines,'   • Wrong URL pasted','var(--amber)');
+    diagLog(lines,'   • Slow/congested network connection','var(--amber)');
     diagLog(lines,'   Fix: Deploy → Manage deployments → Edit → New version → Deploy','var(--amber)');
-  },10000);
+  },20000);
 
   window[cbName]=function(data){
     clearTimeout(timer); delete window[cbName]; script.remove();
@@ -1327,6 +1335,12 @@ function isFpWarningsEnabled(){return localStorage.getItem('att_fp_warnings')!==
 function onFpWarningsToggle(){
   localStorage.setItem('att_fp_warnings',document.getElementById('fp-warnings-toggle').checked?'1':'0');
   renderFingerprintWarning(state.attendance||{});
+}
+
+function isRenameBannerEnabled(){return localStorage.getItem('att_rename_banner')!=='0';}
+function onRenameBannerToggle(){
+  localStorage.setItem('att_rename_banner',document.getElementById('rename-banner-toggle').checked?'1':'0');
+  updateRenameBanner();
 }
 function updateGeoBadge(){
   state.geoRadius=parseInt(document.getElementById('geo-radius').value)||50;
@@ -1681,7 +1695,7 @@ function jsonpFetch(url, callback){
   const timer=setTimeout(()=>{
     delete window[cbName];script.remove();
     callback(null,new Error('Timeout'));
-  },10000);
+  },20000);
   window[cbName]=function(data){
     clearTimeout(timer);delete window[cbName];script.remove();
     callback(data,null);
@@ -1759,6 +1773,27 @@ function startRecordsPoll(){
   },30000);
 }
 
+// Check-ins now skip the (expensive) Summary rebuild to avoid overloading
+// the server when many students check in near-simultaneously — this timer
+// keeps the actual Google Sheet's Summary tab reasonably current anyway,
+// decoupled from the busy check-in path. A miss here just means Summary is
+// briefly stale, never a lost check-in.
+let summaryRebuildInterval=null;
+function startSummaryRebuildPoll(){
+  if(summaryRebuildInterval)clearInterval(summaryRebuildInterval);
+  summaryRebuildInterval=setInterval(()=>{
+    const url=localStorage.getItem('att_script_url')||'';
+    if(!url)return;
+    const cbName='_rb'+Date.now();
+    const script=document.createElement('script');
+    const timer=setTimeout(()=>{delete window[cbName];script.remove();},20000);
+    window[cbName]=function(){clearTimeout(timer);delete window[cbName];script.remove();};
+    script.onerror=function(){clearTimeout(timer);delete window[cbName];script.remove();};
+    script.src=buildURL(url,{action:'rebuild_summary'})+'&callback='+cbName;
+    document.head.appendChild(script);
+  },60000);
+}
+
 function exportCSV(){
   const attendance=state.attendance||{};
   const students=Object.keys(attendance).sort();
@@ -1815,10 +1850,11 @@ function clearRecords(){
 
 // ── Rename reminder banner ────────────────────────────────────────────────────
 function updateRenameBanner(){
-  const renames=ld('att_renames',{});
   const banner=document.getElementById('rename-reminder');
   const detail=document.getElementById('rename-reminder-detail');
   if(!banner||!detail)return;
+  if(!isRenameBannerEnabled()){banner.style.display='none';return;}
+  const renames=ld('att_renames',{});
   const entries=Object.entries(renames);
   if(entries.length===0){
     banner.style.display='none';
@@ -2148,15 +2184,31 @@ function startMergeStudent(currentName){
   const others=Object.keys(state.attendance||{}).filter(n=>n!==currentName);
   if(others.length===0){alert('병합할 다른 학생 기록이 없습니다.');return;}
   const otherName=prompt(
-    `"${currentName}"과(와) 합칠 다른 이름을 정확히 입력하세요.\n(같은 학생이 오타 등으로 따로 등록된 경우)\n\n현재 등록된 다른 이름들:\n${others.join(', ')}`,
+    `"${currentName}"과(와) 같은 학생인데 오타 등으로 다른 이름으로도 기록되어 있다면, 그 이름을 정확히 입력하세요.\n\n현재 등록된 다른 이름들:\n${others.join(', ')}`,
     ''
   );
   if(!otherName)return;
   const trimmed=otherName.trim();
   if(trimmed===currentName){alert('같은 이름입니다.');return;}
   if(!state.attendance[trimmed]){alert(`"${trimmed}"이라는 이름의 기록을 찾을 수 없습니다. 목록에 있는 이름을 정확히 입력해 주세요.`);return;}
-  if(!confirm(`"${trimmed}"의 모든 기록을 "${currentName}"으로 합칠까요?\n\n같은 회차·시간에 두 이름 모두 기록이 있다면, "${currentName}" 쪽 기록을 유지하고 "${trimmed}" 쪽은 버려집니다.\n이 작업은 되돌릴 수 없습니다.`))return;
-  applyMergeStudents(trimmed,currentName);
+
+  // Ask explicitly which of the two to KEEP — regardless of which student's
+  // detail panel this was opened from, so there's no risk of guessing the
+  // wrong direction just because of where the button happened to be clicked.
+  const keepInput=prompt(
+    `두 이름 중 최종적으로 남길 이름을 아래에 그대로 입력하세요.\n(나머지 하나는 이 이름으로 합쳐지고 사라집니다)\n\n① ${currentName}\n② ${trimmed}`,
+    currentName
+  );
+  if(!keepInput)return;
+  const keepName=keepInput.trim();
+  if(keepName!==currentName&&keepName!==trimmed){
+    alert('입력하신 이름이 위 두 이름 중 하나와 정확히 일치하지 않습니다. 다시 시도해 주세요.');
+    return;
+  }
+  const dropName=(keepName===currentName)?trimmed:currentName;
+
+  if(!confirm(`❌ "${dropName}" 의 기록을 → ✅ "${keepName}" 으로 합칩니다.\n\n같은 회차·시간에 두 이름 모두 기록이 있다면, "${keepName}" 쪽 기록을 유지하고 "${dropName}" 쪽은 버려집니다.\n이 작업은 되돌릴 수 없습니다.`))return;
+  applyMergeStudents(dropName,keepName);
 }
 
 function applyMergeStudents(dropName,keepName){
